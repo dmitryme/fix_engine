@@ -1,0 +1,12 @@
+{application, erlang_fix,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { erlang_fix_app, []}},
+  {env, []}
+ ]}.
