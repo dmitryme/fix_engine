@@ -6,3 +6,5 @@ mkdir -p .build
 cd .build
 cmake ../fix_parser
 make
+cd ../
+./rebar compile
