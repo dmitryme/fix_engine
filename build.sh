@@ -1,4 +1,4 @@
 #!/bin/bash
 
-./rebar update-deps
+./rebar get-deps
 ./rebar compile
