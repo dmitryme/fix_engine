@@ -1,3 +1,3 @@
 [submodule "fix_parser"]
-	path = fix_parser
-	url = git@github.com:dmitryme/fix_parser.git
+	path = c_str/fix_parser
+	url = git://github.com/dmitryme/fix_parser.git
