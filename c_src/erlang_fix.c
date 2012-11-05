@@ -1,5 +1,6 @@
 #include <erl_nif.h>
 #include <linux/limits.h> // for PATH_MAX const
+#include <fix_parser.h>
 
 ERL_NIF_TERM ok_atom;
 ERL_NIF_TERM error_atom;
@@ -26,6 +27,13 @@ static ERL_NIF_TERM create_parser(ErlNifEnv* env, int argc, ERL_NIF_TERM const a
    if (res <= 0)
    {
       return make_error(env, "First paremeter is invalid.");
+   }
+   FIXParserAttrs attrs = {};
+   unsigned int len = 0;
+   res = enif_get_list_length(env, argv[1], &len);
+   if (!res)
+   {
+      return make_error(env, "Second parameter not a list.");
    }
    return enif_make_string(env, path, ERL_NIF_LATIN1);
 }
