@@ -1,3 +1,8 @@
+/* @file   erlang_fix.h
+   @author Dmitry S. Melnikov, dmitryme@gmail.com
+   @date   Created on: 11/06/2012 10:54:30 AM
+*/
+
 #include <erl_nif.h>
 #include <linux/limits.h> // for PATH_MAX const
 #include <fix_parser.h>
