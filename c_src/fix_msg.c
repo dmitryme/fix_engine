@@ -7,6 +7,7 @@
 
 #include <erl_nif.h>
 #include <fix_error.h>
+#include <fix_msg.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,7 +30,6 @@ static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 
 static ERL_NIF_TERM create(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
 {
-
    return ok_atom;
 }
 
