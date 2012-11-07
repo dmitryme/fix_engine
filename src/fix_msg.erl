@@ -7,6 +7,9 @@
 load_lib() ->
    erlang:load_nif(code:priv_dir(erlang_fix) ++ "/fix_msg", 0).
 
--spec create(string(), attrs(), flags()) -> {ok, msgRef()} | {error, reason()}.
-create(parserRef(), string()) ->
+-type msgRef() :: {reference(), binary(), binary()}.
+-type reason() :: {pos_integer(), string()}.
+
+-spec create(fix_parser:parserRef(), string()) -> {ok, msgRef()} | {error, reason()}.
+create(_ParserRef, _MsgType) ->
    {error, library_not_loaded}.
