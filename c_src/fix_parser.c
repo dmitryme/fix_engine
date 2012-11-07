@@ -1,56 +1,28 @@
+#include "common.h"
+
 #include <erl_nif.h>
 #include <linux/limits.h> // for PATH_MAX const
 #include <fix_parser.h>
 #include <fix_error.h>
-#include <stdarg.h>
-#include <stdio.h>
 #include <string.h>
 
-ERL_NIF_TERM ok_atom;
-ERL_NIF_TERM error_atom;
-ErlNifResourceType* parsers_res;
-ErlNifResourceType* messages_res;
+static ERL_NIF_TERM ok_atom;
+static ErlNifResourceType* parsers_res;
 
 static void free_parser(ErlNifEnv* env, void* obj)
 {
    fix_parser_free((FIXParser*)obj);
 }
 
-static void free_message(ErlNifEnv* env, void* obj)
-{
-   fix_msg_free((FIXMsg*)obj);
-}
-
-static ERL_NIF_TERM make_error(ErlNifEnv* env, char const* errorMsg, ...)
-{
-   va_list ap;
-   va_start(ap, errorMsg);
-   char text[1024];
-   vsnprintf(text, sizeof(text), errorMsg, ap);
-   return enif_make_tuple2(env, error_atom, enif_make_string(env, text, ERL_NIF_LATIN1));
-}
-
-static ERL_NIF_TERM make_parser_error(ErlNifEnv* env, int errCode, char const* errText)
-{
-   return enif_make_tuple2(
-         env, error_atom, enif_make_tuple2(
-            env, enif_make_int(env, errCode), enif_make_string(env, errText, ERL_NIF_LATIN1)));
-}
-
 static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
    parsers_res = enif_open_resource_type( env, NULL, "parsers_res",
       free_parser, ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER, NULL);
-
-   messages_res = enif_open_resource_type( env, NULL, "messages_res",
-      free_message, ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER, NULL);
-
    ok_atom = enif_make_atom(env, "ok");
-   error_atom = enif_make_atom(env, "error");
    return 0;
 }
 
-static ERL_NIF_TERM create_parser(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM create(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
 {
    char path[PATH_MAX] = {};
    int res = enif_get_string(env, argv[0], path, sizeof(path), ERL_NIF_LATIN1);
@@ -121,7 +93,7 @@ static ERL_NIF_TERM create_parser(ErlNifEnv* env, int argc, ERL_NIF_TERM const a
 
 static ErlNifFunc nif_funcs[] =
 {
-   {"create_parser", 3, create_parser}
+   {"create", 3, create}
 };
 
-ERL_NIF_INIT(erlang_fix, nif_funcs, load, NULL, NULL, NULL)
+ERL_NIF_INIT(fix_parser, nif_funcs, load, NULL, NULL, NULL)
