@@ -17,7 +17,8 @@
                  check_unknown_fields |
                  check_all.
 -type flags() :: [flag()].
--type parserRef() :: {pos_integer(), binary()}.
+-type parserRef() :: {reference(), binary()}.
+-export_type([parserRef/0]).
 
 load_lib() ->
    erlang:load_nif(code:priv_dir(erlang_fix) ++ "/fix_parser", 0).
