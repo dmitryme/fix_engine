@@ -1,3 +1,8 @@
+/* @file   fix_msg.h
+   @author Dmitry S. Melnikov, dmitryme@gmail.com
+   @date   Created on: 11/07/2012 17:54:30 AM
+*/
+
 #include "common.h"
 
 #include <erl_nif.h>
