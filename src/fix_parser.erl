@@ -1,6 +1,6 @@
--module(erlang_fix).
+-module(fix_parser).
 
--export([create_parser/3]).
+-export([create/3]).
 
 -on_load(load_lib/0).
 
@@ -20,8 +20,8 @@
 -type parserRef() :: {pos_integer(), binary()}.
 
 load_lib() ->
-   erlang:load_nif(code:priv_dir(erlang_fix) ++ "/erlang_fix", 0).
+   erlang:load_nif(code:priv_dir(erlang_fix) ++ "/fix_parser", 0).
 
--spec create_parser(string(), attrs(), flags()) -> {ok, parserRef()} | {error, string()}.
-create_parser(_Path, _Attrs, _Flags) ->
+-spec create(string(), attrs(), flags()) -> {ok, parserRef()} | {error, string()}.
+create(_Path, _Attrs, _Flags) ->
    {error, library_not_loaded}.
