@@ -1,18 +1,27 @@
-/* @file   erlang_fix.h
-   @author Dmitry S. Melnikov, dmitryme@gmail.com
-   @date   Created on: 11/06/2012 10:54:30 AM
-*/
-
 #include <erl_nif.h>
 #include <linux/limits.h> // for PATH_MAX const
 #include <fix_parser.h>
+#include <fix_error.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 
 ERL_NIF_TERM ok_atom;
 ERL_NIF_TERM error_atom;
+ErlNifResourceType* parsers_res;
+ErlNifResourceType* messages_res;
 
-ERL_NIF_TERM make_error(ErlNifEnv* env, char const* errorMsg, ...)
+static void free_parser(ErlNifEnv* env, void* obj)
+{
+   fix_parser_free((FIXParser*)obj);
+}
+
+static void free_message(ErlNifEnv* env, void* obj)
+{
+   fix_msg_free((FIXMsg*)obj);
+}
+
+static ERL_NIF_TERM make_error(ErlNifEnv* env, char const* errorMsg, ...)
 {
    va_list ap;
    va_start(ap, errorMsg);
@@ -21,14 +30,24 @@ ERL_NIF_TERM make_error(ErlNifEnv* env, char const* errorMsg, ...)
    return enif_make_tuple2(env, error_atom, enif_make_string(env, text, ERL_NIF_LATIN1));
 }
 
+static ERL_NIF_TERM make_parser_error(ErlNifEnv* env, int errCode, char const* errText)
+{
+   return enif_make_tuple2(
+         env, error_atom, enif_make_tuple2(
+            env, enif_make_int(env, errCode), enif_make_string(env, errText, ERL_NIF_LATIN1)));
+}
+
 static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
-  /*ErlNifResourceFlags flags;*/
-  /*sick_handle_type = enif_open_resource_type(env, MODULE, "sick_handle_type",*/
-      /*NULL, ERL_NIF_RT_CREATE, &flags);*/
-  ok_atom = enif_make_atom(env, "ok");
-  error_atom = enif_make_atom(env, "error");
-  return 0;
+   parsers_res = enif_open_resource_type( env, NULL, "parsers_res",
+      free_parser, ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER, NULL);
+
+   messages_res = enif_open_resource_type( env, NULL, "messages_res",
+      free_message, ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER, NULL);
+
+   ok_atom = enif_make_atom(env, "ok");
+   error_atom = enif_make_atom(env, "error");
+   return 0;
 }
 
 static ERL_NIF_TERM create_parser(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
@@ -42,7 +61,6 @@ static ERL_NIF_TERM create_parser(ErlNifEnv* env, int argc, ERL_NIF_TERM const a
    FIXParserAttrs attrs = {};
    ERL_NIF_TERM head;
    ERL_NIF_TERM tail = argv[1];
-   int cnt = 0;
    while(enif_get_list_cell(env, tail, &head, &tail))
    {
       int arity;
@@ -73,7 +91,32 @@ static ERL_NIF_TERM create_parser(ErlNifEnv* env, int argc, ERL_NIF_TERM const a
          return make_error(env, "Unsupported parameter name '%s'.", pname);
       }
    }
-   return ok_atom;
+   tail = argv[2];
+   int flags = 0;
+   while(enif_get_list_cell(env, tail, &head, &tail))
+   {
+      char flag[64] = {};
+      enif_get_atom(env, head, flag, sizeof(flag), ERL_NIF_LATIN1);
+      if (!strcmp(flag, "check_crc")) { flags |= PARSER_FLAG_CHECK_CRC; }
+      else if (!strcmp(flag, "check_required")) { flags |= PARSER_FLAG_CHECK_REQUIRED; }
+      else if (!strcmp(flag, "check_value")) { flags |= PARSER_FLAG_CHECK_VALUE; }
+      else if (!strcmp(flag, "check_unknown_fields")) { flags |= PARSER_FLAG_CHECK_UNKNOWN_FIELDS; }
+      else if (!strcmp(flag, "check_all")) { flags |= PARSER_FLAG_CHECK_ALL; }
+      else
+      {
+         return make_error(env, "Unsupported flag '%s'.", flag);
+      }
+   }
+   FIXParser* parser = fix_parser_create(path, &attrs, flags);
+   if (!parser)
+   {
+      return make_parser_error(env, get_fix_error_code(), get_fix_error_text());
+   }
+   FIXParser** pres = (FIXParser**)enif_alloc_resource(parsers_res, sizeof(FIXParser*));
+   *pres = parser;
+   ERL_NIF_TERM pres_term = enif_make_resource(env, pres);
+   enif_release_resource(pres);
+   return enif_make_tuple2(env, ok_atom, enif_make_tuple2(env, enif_make_ref(env), pres_term));
 }
 
 static ErlNifFunc nif_funcs[] =
