@@ -133,7 +133,7 @@ static ERL_NIF_TERM create_msg(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv
 {
    int arity;
    ERL_NIF_TERM const* tuple = NULL;
-   if (!enif_get_tuple(env, argv[0], &arity, &tuple))
+   if (!enif_get_tuple(env, argv[0], &arity, &tuple) || arity != 2)
    {
       return make_error(env, "Wrong parserRef.");
    }
@@ -163,6 +163,27 @@ static ERL_NIF_TERM create_msg(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM add_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
 {
+   int arity;
+   ERL_NIF_TERM const* tuple = NULL;
+   if (!enif_get_tuple(env, argv[0], &arity, &tuple) || arity != 3)
+   {
+      return make_error(env, "Wrong msgRef.");
+   }
+   void* res = NULL;
+   if (!enif_get_resource(env, tuple[2], message_res, &res))
+   {
+      return make_error(env, "Wrong message resource.");
+   }
+   FIXMsg* msg = *(FIXMsg**)res;
+   int fieldNum = 0;
+   if (!enif_get_int(env, argv[1], &fieldNum))
+   {
+      return make_error(env, "Wrong field num.");
+   }
+   if (enif_is_number(env, argv[2]))
+   {
+
+   }
    return ok_atom;
 }
 
