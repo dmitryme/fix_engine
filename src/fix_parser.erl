@@ -1,6 +1,6 @@
 -module(fix_parser).
 
--export([create/3, create_msg/2, add_field/3]).
+-export([create/3, create_msg/2, set_int_field/3, set_double_field/3, set_string_field/3, set_char_field/3]).
 
 -on_load(load_lib/0).
 
@@ -34,6 +34,18 @@ create(_Path, _Attrs, _Flags) ->
 create_msg(_ParserRef, _MsgType) ->
    {error, library_not_loaded}.
 
--spec add_field(msgRef(), pos_integer(), any()) -> ok | {error, reason()}.
-add_field(_MsgRef, _FieldNum, _Value) ->
+-spec set_int_field(msgRef(), pos_integer(), any()) -> ok | {error, reason()}.
+set_int_field(_MsgRef, _FieldNum, _Value) ->
+   {error, library_not_loaded}.
+
+-spec set_double_field(msgRef(), pos_integer(), any()) -> ok | {error, reason()}.
+set_double_field(_MsgRef, _FieldNum, _Value) ->
+   {error, library_not_loaded}.
+
+-spec set_string_field(msgRef(), pos_integer(), any()) -> ok | {error, reason()}.
+set_string_field(_MsgRef, _FieldNum, _Value) ->
+   {error, library_not_loaded}.
+
+-spec set_char_field(msgRef(), pos_integer(), any()) -> ok | {error, reason()}.
+set_char_field(_MsgRef, _FieldNum, _Value) ->
    {error, library_not_loaded}.

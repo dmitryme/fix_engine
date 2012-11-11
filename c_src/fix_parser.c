@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 static ERL_NIF_TERM ok_atom;
 static ERL_NIF_TERM error_atom;
@@ -161,7 +162,7 @@ static ERL_NIF_TERM create_msg(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM add_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM set_int_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
 {
    int arity;
    ERL_NIF_TERM const* tuple = NULL;
@@ -175,24 +176,63 @@ static ERL_NIF_TERM add_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[
       return make_error(env, "Wrong message resource.");
    }
    FIXMsg* msg = *(FIXMsg**)res;
-   int fieldNum = 0;
-   if (!enif_get_int(env, argv[1], &fieldNum))
+   int tagNum = 0;
+   if (!enif_get_int(env, argv[1], &tagNum))
    {
-      return make_error(env, "Wrong field num.");
+      return make_error(env, "Wrong tag num.");
    }
-   if (enif_is_number(env, argv[2]))
+   if (!enif_is_number(env, argv[2]))
    {
+      return make_error(env, "Value is not a integer.");
+   }
+   int32_t val32 = 0;
+   int64_t val64 = 0;
+   if (enif_get_int(env, argv[2], &val32))
+   {
+      if (FIX_FAILED == fix_msg_set_int32(msg, NULL, tagNum, val32))
+      {
+         // TODO: return make_parser_error
+         return error_atom;
+      }
+   }
+   else if (enif_get_int64(env, argv[2], &val64))
+   {
+      if (FIX_FAILED == fix_msg_set_int64(msg, NULL, tagNum, val64))
+      {
+         // TODO: return make_parser_error
+         return error_atom;
+      }
+   }
+   return ok_atom;
+}
 
-   }
+/*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+{
+   return ok_atom;
+}
+
+/*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+{
+   return ok_atom;
+}
+
+/*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM set_char_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+{
    return ok_atom;
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ErlNifFunc nif_funcs[] =
 {
-   {"create",     3, create},
-   {"create_msg", 2, create_msg},
-   {"add_field",  3, add_field}
+   {"create",            3, create},
+   {"create_msg",        2, create_msg},
+   {"set_int_field",     3, set_int_field},
+   {"set_double_field",  3, set_double_field},
+   {"set_string_field",  3, set_string_field},
+   {"set_char_field",    3, set_char_field}
 };
 
 ERL_NIF_INIT(fix_parser, nif_funcs, load, NULL, NULL, NULL)
