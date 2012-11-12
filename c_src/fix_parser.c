@@ -29,7 +29,7 @@ static ERL_NIF_TERM make_error(ErlNifEnv* env, char const* errorMsg, ...)
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM make_parser_error(ErlNifEnv* env, int errCode, char const* errText)
+static ERL_NIF_TERM make_parser_error(ErlNifEnv* env, int32_t errCode, char const* errText)
 {
    return enif_make_tuple2(
          env, error_atom, enif_make_tuple2(
@@ -49,7 +49,7 @@ static void free_fix_msg(ErlNifEnv* env, void* obj)
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
+static int32_t load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 {
    parser_res = enif_open_resource_type( env, NULL, "erlang_fix_parser_res",
       free_fix_parser, ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER, NULL);
@@ -63,10 +63,10 @@ static int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM create(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM create(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    char path[PATH_MAX] = {};
-   int res = enif_get_string(env, argv[0], path, sizeof(path), ERL_NIF_LATIN1);
+   int32_t res = enif_get_string(env, argv[0], path, sizeof(path), ERL_NIF_LATIN1);
    if (res <= 0)
    {
       return make_error(env, "First paremeter is invalid. Should be string.");
@@ -76,7 +76,7 @@ static ERL_NIF_TERM create(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
    ERL_NIF_TERM tail = argv[1];
    while(enif_get_list_cell(env, tail, &head, &tail))
    {
-      int arity;
+      int32_t arity;
       ERL_NIF_TERM const* tuple = NULL;
       if (!enif_get_tuple(env, head, &arity, &tuple) || arity != 2)
       {
@@ -87,7 +87,7 @@ static ERL_NIF_TERM create(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
       {
          return make_error(env, "Wrong param name type. Should be atom.");
       }
-      int val = 0;
+      int32_t val = 0;
       if (!enif_get_int(env, tuple[1], &val))
       {
          return make_error(env, "Wrong param '%s' value. Should be integer.", pname);
@@ -105,7 +105,7 @@ static ERL_NIF_TERM create(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
       }
    }
    tail = argv[2];
-   int flags = 0;
+   int32_t flags = 0;
    while(enif_get_list_cell(env, tail, &head, &tail))
    {
       char flag[64] = {};
@@ -133,9 +133,9 @@ static ERL_NIF_TERM create(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM create_msg(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM create_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   int arity;
+   int32_t arity;
    ERL_NIF_TERM const* tuple = NULL;
    if (!enif_get_tuple(env, argv[0], &arity, &tuple) || arity != 2)
    {
@@ -167,7 +167,7 @@ static ERL_NIF_TERM create_msg(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv
 /*-----------------------------------------------------------------------------------------------------------------------*/
 ERL_NIF_TERM get_parser_msg_group(ErlNifEnv* env, ERL_NIF_TERM ref, FIXParser** parser, FIXMsg** msg, FIXGroup** group)
 {
-   int arity;
+   int32_t arity;
    ERL_NIF_TERM const* tuple = NULL;
    if (!enif_get_tuple(env, ref, &arity, &tuple) || (arity != 3 && arity != 4))
    {
@@ -201,7 +201,7 @@ ERL_NIF_TERM get_parser_msg_group(ErlNifEnv* env, ERL_NIF_TERM ref, FIXParser** 
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM set_int32_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM set_int32_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    FIXParser* parser;
    FIXMsg* msg;
@@ -211,7 +211,7 @@ static ERL_NIF_TERM set_int32_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const
    {
       return res;
    }
-   int tagNum = 0;
+   int32_t tagNum = 0;
    if (!enif_get_int(env, argv[1], &tagNum))
    {
       return make_error(env, "Wrong tag num.");
@@ -233,7 +233,7 @@ static ERL_NIF_TERM set_int32_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM set_int64_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM set_int64_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    FIXParser* parser;
    FIXMsg* msg;
@@ -243,7 +243,7 @@ static ERL_NIF_TERM set_int64_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const
    {
       return res;
    }
-   int tagNum = 0;
+   int32_t tagNum = 0;
    if (!enif_get_int(env, argv[1], &tagNum))
    {
       return make_error(env, "Wrong tag num.");
@@ -265,7 +265,7 @@ static ERL_NIF_TERM set_int64_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    FIXParser* parser;
    FIXMsg* msg;
@@ -275,7 +275,7 @@ static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int argc, ERL_NIF_TERM cons
    {
       return res;
    }
-   int tagNum = 0;
+   int32_t tagNum = 0;
    if (!enif_get_int(env, argv[1], &tagNum))
    {
       return make_error(env, "Wrong tag num.");
@@ -294,7 +294,7 @@ static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int argc, ERL_NIF_TERM cons
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    FIXParser* parser;
    FIXMsg* msg;
@@ -304,7 +304,7 @@ static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int argc, ERL_NIF_TERM cons
    {
       return res;
    }
-   int tagNum = 0;
+   int32_t tagNum = 0;
    if (!enif_get_int(env, argv[1], &tagNum))
    {
       return make_error(env, "Wrong tag num.");
@@ -334,7 +334,7 @@ static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int argc, ERL_NIF_TERM cons
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM set_char_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM set_char_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    FIXParser* parser;
    FIXMsg* msg;
@@ -344,7 +344,7 @@ static ERL_NIF_TERM set_char_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const 
    {
       return res;
    }
-   int tagNum = 0;
+   int32_t tagNum = 0;
    if (!enif_get_int(env, argv[1], &tagNum))
    {
       return make_error(env, "Wrong tag num.");
@@ -367,7 +367,7 @@ static ERL_NIF_TERM set_char_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const 
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM get_int32_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM get_int32_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    FIXParser* parser;
    FIXMsg* msg;
@@ -377,7 +377,7 @@ static ERL_NIF_TERM get_int32_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const
    {
       return res;
    }
-   int tagNum = 0;
+   int32_t tagNum = 0;
    if (!enif_get_int(env, argv[1], &tagNum))
    {
       return make_error(env, "Wrong tag num.");
@@ -391,7 +391,7 @@ static ERL_NIF_TERM get_int32_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM get_int64_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM get_int64_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    FIXParser* parser;
    FIXMsg* msg;
@@ -401,7 +401,7 @@ static ERL_NIF_TERM get_int64_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const
    {
       return res;
    }
-   int tagNum = 0;
+   int32_t tagNum = 0;
    if (!enif_get_int(env, argv[1], &tagNum))
    {
       return make_error(env, "Wrong tag num.");
@@ -415,7 +415,7 @@ static ERL_NIF_TERM get_int64_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM get_double_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM get_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    FIXParser* parser;
    FIXMsg* msg;
@@ -425,7 +425,7 @@ static ERL_NIF_TERM get_double_field(ErlNifEnv* env, int argc, ERL_NIF_TERM cons
    {
       return res;
    }
-   int tagNum = 0;
+   int32_t tagNum = 0;
    if (!enif_get_int(env, argv[1], &tagNum))
    {
       return make_error(env, "Wrong tag num.");
@@ -439,15 +439,33 @@ static ERL_NIF_TERM get_double_field(ErlNifEnv* env, int argc, ERL_NIF_TERM cons
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM get_string_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM get_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    return ok_atom;
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM get_char_field(ErlNifEnv* env, int argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM get_char_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   return ok_atom;
+   FIXParser* parser;
+   FIXMsg* msg;
+   FIXGroup* group;
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser, &msg, &group);
+   if (res != ok_atom)
+   {
+      return res;
+   }
+   int32_t tagNum = 0;
+   if (!enif_get_int(env, argv[1], &tagNum))
+   {
+      return make_error(env, "Wrong tag num.");
+   }
+   char val;
+   if (FIX_FAILED == fix_msg_get_char(msg, group, tagNum, &val))
+   {
+      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+   }
+   return enif_make_tuple2(env, ok_atom, enif_make_int(env, val));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
