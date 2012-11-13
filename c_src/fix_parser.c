@@ -441,7 +441,26 @@ static ERL_NIF_TERM get_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   return ok_atom;
+   FIXParser* parser;
+   FIXMsg* msg;
+   FIXGroup* group;
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser, &msg, &group);
+   if (res != ok_atom)
+   {
+      return res;
+   }
+   int32_t tagNum = 0;
+   if (!enif_get_int(env, argv[1], &tagNum))
+   {
+      return make_error(env, "Wrong tag num.");
+   }
+   char const* data = NULL;
+   uint32_t len = 0;
+   if (FIX_FAILED == fix_msg_get_string(msg, group, tagNum, &data, &len))
+   {
+      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+   }
+   return enif_make_tuple2(env, ok_atom, enif_make_string_len(env, data, len, ERL_NIF_LATIN1));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
