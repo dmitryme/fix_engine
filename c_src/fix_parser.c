@@ -63,6 +63,43 @@ static int32_t load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM get_parser_msg_group(ErlNifEnv* env, ERL_NIF_TERM ref, FIXParser** parser, FIXMsg** msg, FIXGroup** group)
+{
+   int32_t arity;
+   ERL_NIF_TERM const* tuple = NULL;
+   if (!enif_get_tuple(env, ref, &arity, &tuple) || (arity != 3 && arity != 4))
+   {
+      return make_error(env, "Wrong msgRef.");
+   }
+   void* res = NULL;
+   if (!enif_get_resource(env, tuple[1], parser_res, &res))
+   {
+      return make_error(env, "Wrong parser resource.");
+   }
+   *parser = *(FIXParser**)res;
+
+   if (!enif_get_resource(env, tuple[2], message_res, &res))
+   {
+      return make_error(env, "Wrong message resource.");
+   }
+   *msg = *(FIXMsg**)res;
+   if (arity == 4) // group exists
+   {
+      if (!enif_get_resource(env, tuple[3], group_res, &res))
+      {
+         return make_error(env, "Wrong group resource.");
+      }
+      *group = *(FIXGroup**)res;
+   }
+   else
+   {
+      *group = NULL;
+   }
+   return ok_atom;
+}
+
+
+/*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM create(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    char path[PATH_MAX] = {};
@@ -165,37 +202,98 @@ static ERL_NIF_TERM create_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-ERL_NIF_TERM get_parser_msg_group(ErlNifEnv* env, ERL_NIF_TERM ref, FIXParser** parser, FIXMsg** msg, FIXGroup** group)
+static ERL_NIF_TERM add_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   int32_t arity;
+   FIXParser* parser;
+   FIXMsg* msg;
+   FIXGroup* group;
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser, &msg, &group);
+   if (res != ok_atom)
+   {
+      return res;
+   }
+   int32_t tagNum = 0;
+   if (!enif_get_int(env, argv[1], &tagNum))
+   {
+      return make_error(env, "Wrong tag num.");
+   }
+   FIXGroup* new_group = fix_msg_add_group(msg, group, tagNum);
+   if (!new_group)
+   {
+      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+   }
+   int32_t arity = 0;
    ERL_NIF_TERM const* tuple = NULL;
-   if (!enif_get_tuple(env, ref, &arity, &tuple) || (arity != 3 && arity != 4))
-   {
-      return make_error(env, "Wrong msgRef.");
-   }
-   void* res = NULL;
-   if (!enif_get_resource(env, tuple[1], parser_res, &res))
-   {
-      return make_error(env, "Wrong parser resource.");
-   }
-   *parser = *(FIXParser**)res;
+   enif_get_tuple(env, argv[1], &arity, &tuple);
+   FIXGroup** grp = (FIXGroup**)enif_alloc_resource(group_res, sizeof(FIXGroup*));
+   *grp = new_group;
+   ERL_NIF_TERM grp_term = enif_make_resource(env, grp);
+   enif_release_resource(grp);
+   return enif_make_tuple2(env, ok_atom, enif_make_tuple4(
+            env, enif_make_ref(env), tuple[1], tuple[2], grp_term));
+}
 
-   if (!enif_get_resource(env, tuple[2], message_res, &res))
+/*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM get_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+{
+   FIXParser* parser;
+   FIXMsg* msg;
+   FIXGroup* group;
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser, &msg, &group);
+   if (res != ok_atom)
    {
-      return make_error(env, "Wrong message resource.");
+      return res;
    }
-   *msg = *(FIXMsg**)res;
-   if (arity == 4) // group exists
+   int32_t tagNum = 0;
+   if (!enif_get_int(env, argv[1], &tagNum))
    {
-      if (!enif_get_resource(env, tuple[3], group_res, &res))
-      {
-         return make_error(env, "Wrong group resource.");
-      }
-      *group = *(FIXGroup**)res;
+      return make_error(env, "Wrong tag num.");
    }
-   else
+   int32_t idx = 0;
+   if (!enif_get_int(env, argv[2], &idx))
    {
-      *group = NULL;
+      return make_error(env, "Wrong idx.");
+   }
+   FIXGroup* ret_group = fix_msg_get_group(msg, group, tagNum, idx);
+   if (!ret_group)
+   {
+      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+   }
+   int32_t arity = 0;
+   ERL_NIF_TERM const* tuple = NULL;
+   enif_get_tuple(env, argv[1], &arity, &tuple);
+   FIXGroup** grp = (FIXGroup**)enif_alloc_resource(group_res, sizeof(FIXGroup*));
+   *grp = ret_group;
+   ERL_NIF_TERM grp_term = enif_make_resource(env, grp);
+   enif_release_resource(grp);
+   return enif_make_tuple2(env, ok_atom, enif_make_tuple4(
+            env, enif_make_ref(env), tuple[1], tuple[2], grp_term));
+}
+
+/*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM del_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+{
+   FIXParser* parser;
+   FIXMsg* msg;
+   FIXGroup* group;
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser, &msg, &group);
+   if (res != ok_atom)
+   {
+      return res;
+   }
+   int32_t tagNum = 0;
+   if (!enif_get_int(env, argv[1], &tagNum))
+   {
+      return make_error(env, "Wrong tag num.");
+   }
+   int32_t idx = 0;
+   if (!enif_get_int(env, argv[2], &idx))
+   {
+      return make_error(env, "Wrong idx.");
+   }
+   if (FIX_FAILED == fix_msg_del_group(msg, group, tagNum, idx))
+   {
+      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
    }
    return ok_atom;
 }
@@ -492,6 +590,9 @@ static ErlNifFunc nif_funcs[] =
 {
    {"create",            3, create           },
    {"create_msg",        2, create_msg       },
+   {"add_group",         2, add_group        },
+   {"get_group",         3, get_group        },
+   {"del_group",         3, del_group        },
    {"set_int32_field",   3, set_int32_field  },
    {"set_int64_field",   3, set_int64_field  },
    {"set_double_field",  3, set_double_field },
