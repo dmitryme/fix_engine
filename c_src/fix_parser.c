@@ -626,20 +626,20 @@ static ERL_NIF_TERM msg_to_string(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM con
       return make_error(env, "Wrong delimiter.");
    }
    uint32_t reqBuffLen = 1024;
-   ErlNifBinary* bin = NULL;
-   if (!enif_alloc_binary(reqBuffLen, bin))
+   ErlNifBinary bin;
+   if (!enif_alloc_binary(reqBuffLen, &bin))
    {
       return make_error(env, "Unable to allocate binary.");
    }
-   if (FIX_FAILED == fix_msg_to_string(msg, (char)delimiter, (char*)bin->data, bin->size, &reqBuffLen))
+   if (FIX_FAILED == fix_msg_to_string(msg, (char)delimiter, (char*)bin.data, bin.size, &reqBuffLen))
    {
-      if (reqBuffLen > bin->size) // realloc needed
+      if (reqBuffLen > bin.size) // realloc needed
       {
-         if (!enif_realloc_binary(bin, reqBuffLen))
+         if (!enif_realloc_binary(&bin, reqBuffLen))
          {
             res = make_error(env, "Unable to reallocate binary.");
          }
-         if (FIX_FAILED == fix_msg_to_string(msg, (char)delimiter, (char*)bin->data, bin->size, &reqBuffLen))
+         if (FIX_FAILED == fix_msg_to_string(msg, (char)delimiter, (char*)bin.data, bin.size, &reqBuffLen))
          {
             res = make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
          }
@@ -651,11 +651,11 @@ static ERL_NIF_TERM msg_to_string(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM con
    }
    if (res != ok_atom)
    {
-      enif_release_binary(bin);
+      enif_release_binary(&bin);
       return res;
    }
-   ERL_NIF_TERM bin_term = enif_make_binary(env, bin);
-   enif_release_binary(bin);
+   ERL_NIF_TERM bin_term = enif_make_binary(env, &bin);
+   enif_release_binary(&bin);
    return enif_make_tuple2(env, ok_atom, bin_term);
 }
 
