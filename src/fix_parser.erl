@@ -2,7 +2,8 @@
 
 -export([create/3, create_msg/2, add_group/2, get_group/3, del_group/3,
       set_int32_field/3, set_int64_field/3, set_double_field/3, set_string_field/3, set_char_field/3,
-      get_int32_field/2, get_int64_field/2, get_double_field/2, get_string_field/2, get_char_field/2]).
+      get_int32_field/2, get_int64_field/2, get_double_field/2, get_string_field/2, get_char_field/2,
+      msg_to_string/2]).
 
 -on_load(load_lib/0).
 
@@ -89,4 +90,8 @@ get_string_field(_MsgRef, _TagNum) ->
 
 -spec get_char_field(ref(), tagNum()) -> {ok, char()} | {error, reason()}.
 get_char_field(_MsgRef, _TagNum) ->
+   {error, library_not_loaded}.
+
+-spec msg_to_string(msgRef(), char()) -> {ok, char()} | {error, reason()}.
+msg_to_string(_MsgRef, _Delimiter) ->
    {error, library_not_loaded}.
