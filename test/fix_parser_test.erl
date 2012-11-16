@@ -2,12 +2,9 @@
 
 -compile([export_all]).
 
-init() ->
+test() ->
    {ok, P} = fix_parser:create("deps/fix_parser/fix_descr/fix.4.4.perf.xml", [], []),
    {ok, M} = fix_parser:create_msg(P, "8"),
-   M.
-
-test(M) ->
    ok = fix_parser:set_string_field(M, 49, "QWERTY_12345678"),
    ok = fix_parser:set_string_field(M, 56, "ABCQWE_XYZ"),
    ok = fix_parser:set_int32_field(M, 34, 34),
@@ -31,4 +28,5 @@ test(M) ->
    ok = fix_parser:set_double_field(M, 6, 0),
    ok = fix_parser:set_char_field(M, 21, $1),
    ok = fix_parser:set_string_field(M, 58, "COMMENT12"),
-   fix_parser:msg_to_string(M, $|).
+   {ok, Fix} = fix_parser:msg_to_fix(M, $|),
+   fix_parser:fix_to_msg(P, $|, Fix).
