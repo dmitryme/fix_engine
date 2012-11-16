@@ -3,7 +3,7 @@
 -export([create/3, create_msg/2, add_group/2, get_group/3, del_group/3,
       set_int32_field/3, set_int64_field/3, set_double_field/3, set_string_field/3, set_char_field/3,
       get_int32_field/2, get_int64_field/2, get_double_field/2, get_string_field/2, get_char_field/2,
-      msg_to_string/2]).
+      msg_to_fix/2, fix_to_msg/3]).
 
 -on_load(load_lib/0).
 
@@ -12,7 +12,7 @@
                      {'num_pages', pos_integer()} |
                      {'max_pages', pos_integer()} |
                      {'num_groups', pos_integer()} |
-                     {'max_groups', pos_integer()}.
+                     {'max_groups', pos_integer()}.  %% parser attributes ...
 -type attrs()     :: [attr()].
 -type flag()      :: check_crc |
                      check_required |
@@ -33,6 +33,7 @@ load_lib() ->
    erlang:load_nif(code:priv_dir(erlang_fix) ++ "/fix_parser", 0).
 
 -spec create(string(), attrs(), flags()) -> {ok, parserRef()} | {error, reason()}.
+%% @doc creates new parser instance
 create(_Path, _Attrs, _Flags) ->
    {error, library_not_loaded}.
 
@@ -92,6 +93,10 @@ get_string_field(_MsgRef, _TagNum) ->
 get_char_field(_MsgRef, _TagNum) ->
    {error, library_not_loaded}.
 
--spec msg_to_string(msgRef(), char()) -> {ok, char()} | {error, reason()}.
-msg_to_string(_MsgRef, _Delimiter) ->
+-spec msg_to_fix(msgRef(), char()) -> {ok, char()} | {error, reason()}.
+msg_to_fix(_MsgRef, _Delimiter) ->
+   {error, library_not_loaded}.
+
+-spec fix_to_msg(parserRef(), char(), binary()) -> {ok, msgRef(), binary()} | {error, reason()}.
+fix_to_msg(_ParserRef, _Delimiter, _BinData) ->
    {error, library_not_loaded}.
