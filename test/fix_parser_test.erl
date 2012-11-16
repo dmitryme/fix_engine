@@ -29,4 +29,4 @@ test() ->
    ok = fix_parser:set_char_field(M, 21, $1),
    ok = fix_parser:set_string_field(M, 58, "COMMENT12"),
    {ok, Fix} = fix_parser:msg_to_fix(M, $|),
-   fix_parser:fix_to_msg(P, $|, Fix).
+   {ok, M1, <<>>} = fix_parser:fix_to_msg(P, $|, Fix).
