@@ -12,6 +12,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#define DEF_BINARY_SIZE 1024
+
 static ERL_NIF_TERM ok_atom;
 static ERL_NIF_TERM error_atom;
 static ErlNifResourceType* parser_res;
@@ -648,7 +650,7 @@ static ERL_NIF_TERM msg_to_fix(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
    {
       return make_error(env, "Wrong delimiter.");
    }
-   uint32_t reqBuffLen = 1024;
+   uint32_t reqBuffLen = DEF_BINARY_SIZE;
    ErlNifBinary bin;
    if (!enif_alloc_binary(reqBuffLen, &bin))
    {
@@ -676,6 +678,10 @@ static ERL_NIF_TERM msg_to_fix(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
    {
       enif_release_binary(&bin);
       return res;
+   }
+   if (bin.size != reqBuffLen)
+   {
+      enif_realloc_binary(&bin, reqBuffLen);
    }
    ERL_NIF_TERM bin_term = enif_make_binary(env, &bin);
    enif_release_binary(&bin);
