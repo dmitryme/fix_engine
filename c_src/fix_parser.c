@@ -718,11 +718,12 @@ static ERL_NIF_TERM fix_to_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
    *pfix_msg = fix_msg;
    ERL_NIF_TERM pfix_msg_term = enif_make_resource(env, pfix_msg);
    enif_release_resource(pfix_msg);
+   uint32_t pos = stop - (char const*)bin.data + 1;
    return enif_make_tuple3(
          env,
          ok_atom,
          enif_make_tuple3(env, enif_make_ref(env), tuple[1], pfix_msg_term),
-         enif_make_sub_binary(env, argv[2], stop - (char const*)bin.data, bin.size - (stop - (char const*)bin.data)));
+         enif_make_sub_binary(env, argv[2], pos, bin.size - pos));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
