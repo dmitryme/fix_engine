@@ -682,7 +682,7 @@ static ERL_NIF_TERM msg_to_fix(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
       enif_release_binary(&bin);
       return res;
    }
-   if (bin.size != reqBuffLen)
+   if (bin.size > reqBuffLen)
    {
       enif_realloc_binary(&bin, reqBuffLen);
    }
