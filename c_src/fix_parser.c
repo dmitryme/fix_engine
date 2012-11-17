@@ -425,7 +425,10 @@ static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
       return make_error(env, "Value is not a double.");
    }
    double val = 0.0;
-   enif_get_double(env, argv[2], &val);
+   if (!enif_get_double(env, argv[2], &val))
+   {
+      enif_get_int64(env, argv[2], (int64_t*)&val);
+   }
    if (FIX_FAILED == fix_msg_set_double(msg, group, tagNum, val))
    {
       return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
