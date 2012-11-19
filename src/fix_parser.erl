@@ -1,102 +1,109 @@
--module(fix_parser).
+-module(fix_parser_test).
 
--export([create/3, create_msg/2, add_group/2, get_group/3, del_group/3,
-      set_int32_field/3, set_int64_field/3, set_double_field/3, set_string_field/3, set_char_field/3,
-      get_int32_field/2, get_int64_field/2, get_double_field/2, get_string_field/2, get_char_field/2,
-      msg_to_fix/2, fix_to_msg/3]).
+-include_lib("eunit/include/eunit.hrl").
 
--on_load(load_lib/0).
+-compile([export_all]).
 
--type attr()      :: {'page_size', pos_integer()} |
-                     {'max_page_size', pos_integer()} |
-                     {'num_pages', pos_integer()} |
-                     {'max_pages', pos_integer()} |
-                     {'num_groups', pos_integer()} |
-                     {'max_groups', pos_integer()}.  %% parser attributes ...
--type attrs()     :: [attr()].
--type flag()      :: check_crc |
-                     check_required |
-                     check_value |
-                     check_unknown_fields |
-                     check_all.
--type flags()     :: [flag()].
--type parserRef() :: {reference(), binary()}.
--type msgRef()    :: {reference(), binary(), binary()}.
--type groupRef()  :: {reference(), binary(), binary(), binary()}.
--type ref()       :: msgRef() | groupRef().
--type tagNum()    :: pos_integer().
--type reason()    :: atom() |
-                     string() |
-                     {pos_integer(), string()}.
+test1_test() ->
+   {ok, P} = fix_parser:create("../deps/fix_parser/fix_descr/fix.4.4.perf.xml", [], []),
+   {ok, M} = fix_parser:create_msg(P, "8"),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 49, "QWERTY_12345678")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 56, "ABCQWE_XYZ")),
+   ?assertEqual(ok, fix_parser:set_int32_field(M, 34, 34)),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 57, "srv-ivanov_ii1")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 52, "20120716-06:00:16.230")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 37, "1")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 11, "CL_ORD_ID_1234567")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 17, "FE_1_9494_1")),
+   ?assertEqual(ok, fix_parser:set_char_field(M, 150, $0)),
+   ?assertEqual(ok, fix_parser:set_char_field(M, 39, $1)),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 1, "ZUM")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 55, "RTS-12.12")),
+   ?assertEqual(ok, fix_parser:set_char_field(M, 54, $1)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 38, 25.0)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 44, 135155.0)),
+   ?assertEqual(ok, fix_parser:set_char_field(M, 59, $0)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 32, 0)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 31, 0)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 151, 25.0)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 14, 0)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 6, 0)),
+   ?assertEqual(ok, fix_parser:set_char_field(M, 21, $1)),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 58, "COMMENT12")),
+   {ok, Fix} = fix_parser:msg_to_fix(M, $|),
+   Res = {ok, M1, _} = fix_parser:fix_to_msg(P, $|, Fix),
+   ?assertMatch({ok, _, <<>>}, Res),
+   ?assertEqual({ok, "QWERTY_12345678"}, fix_parser:get_string_field(M1, 49)),
+   ?assertEqual({ok, "ABCQWE_XYZ"}, fix_parser:get_string_field(M1, 56)),
+   ?assertEqual({ok, 34}, fix_parser:get_int32_field(M1, 34)),
+   ?assertEqual({ok, "srv-ivanov_ii1"}, fix_parser:get_string_field(M1, 57)),
+   ?assertEqual({ok, "20120716-06:00:16.230"}, fix_parser:get_string_field(M1, 52)),
+   ?assertEqual({ok, "1"}, fix_parser:get_string_field(M1, 37)),
+   ?assertEqual({ok, "CL_ORD_ID_1234567"}, fix_parser:get_string_field(M1, 11)),
+   ?assertEqual({ok, "FE_1_9494_1"}, fix_parser:get_string_field(M1, 17)),
+   ?assertEqual({ok, $0}, fix_parser:get_char_field(M1, 150)),
+   ?assertEqual({ok, $1}, fix_parser:get_char_field(M1, 39)),
+   ?assertEqual({ok, "ZUM"}, fix_parser:get_string_field(M1, 1)),
+   ?assertEqual({ok, "RTS-12.12"}, fix_parser:get_string_field(M1, 55)),
+   ?assertEqual({ok, $1}, fix_parser:get_char_field(M1, 54)),
+   ?assertEqual({ok, 25.0}, fix_parser:get_double_field(M1, 38)),
+   ?assertEqual({ok, 135155.00}, fix_parser:get_double_field(M1, 44)),
+   ?assertEqual({ok, $0}, fix_parser:get_char_field(M1, 59)),
+   ?assertEqual({ok, 0.0}, fix_parser:get_double_field(M1, 32)),
+   ?assertEqual({ok, 0.0}, fix_parser:get_double_field(M1, 31)),
+   ?assertEqual({ok, 25.0}, fix_parser:get_double_field(M1, 151)),
+   ?assertEqual({ok, 0.0}, fix_parser:get_double_field(M1, 14)),
+   ?assertEqual({ok, 0.0}, fix_parser:get_double_field(M1, 6)),
+   ?assertEqual({ok, $1}, fix_parser:get_char_field(M1, 21)),
+   ?assertEqual({ok, "COMMENT12"}, fix_parser:get_string_field(M1, 58)).
 
-load_lib() ->
-   erlang:load_nif(code:priv_dir(erlang_fix) ++ "/fix_parser", 0).
+test2_test() ->
+   {ok, P} = fix_parser:create("../deps/fix_parser/fix_descr/fix.5.0.sp2.xml", [], []),
+   {ok, M} = fix_parser:create_msg(P, "AE"),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 1128, "9")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 571, "121111_1_3999")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 1003, "121111_1_3999")),
+   ?assertEqual(ok, fix_parser:set_int32_field(M, 487, 0)),
+   ?assertEqual(ok, fix_parser:set_int32_field(M, 856, 0)),
+   ?assertEqual(ok, fix_parser:set_int32_field(M, 828, 0)),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 1126, "121119_1_3999")),
+   ?assertEqual(ok, fix_parser:set_char_field(M, 150, $F)),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 17, "0")),
+   ?assertEqual(ok, fix_parser:set_int32_field(M, 423, 2)),
+   {ok, RootPartyID} = fix_parser:add_group(M, 1116),
+   ?assertEqual(ok, fix_parser:set_string_field(RootPartyID, 1117, "XYZ")),
+   ?assertEqual(ok, fix_parser:set_char_field(RootPartyID, 1118, $D)),
+   ?assertEqual(ok, fix_parser:set_int32_field(RootPartyID, 1119, 16)),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 1301, "OTC")),
+   {ok, SecAltID} = fix_parser:add_group(M, 454),
+   ?assertEqual(ok, fix_parser:set_string_field(SecAltID, 455, "SYMBOL_ABC")),
+   ?assertEqual(ok, fix_parser:set_string_field(SecAltID, 456, "M")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 461, "MRCSXX")),
+   ?assertEqual(ok, fix_parser:set_int32_field(M, 854, 0)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 32, 110000)),
+   ?assertEqual(ok, fix_parser:set_double_field(M, 31, 31.12)),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 15, "USD")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 75, "20121119")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 60, "20121119-08:33:57")),
+   ?assertEqual(ok, fix_parser:set_string_field(M, 63, "2")),
+   {ok, SideGrp} = fix_parser:add_group(M, 552),
+   ?assertEqual(ok, fix_parser:set_char_field(SideGrp, 54, $1)),
+   ?assertEqual(ok, fix_parser:set_string_field(SideGrp, 37, "ORD_1234567")),
+   ?assertEqual(ok, fix_parser:set_string_field(SideGrp, 11, "CLORDID_1234567")),
+   ?assertEqual(ok, fix_parser:set_char_field(SideGrp, 40, $2)),
+   ?assertEqual(ok, fix_parser:set_double_field(SideGrp, 44, 31.12)),
+   ?assertEqual(ok, fix_parser:set_double_field(SideGrp, 38, 5000000)),
+   ?assertEqual(ok, fix_parser:set_double_field(SideGrp, 151, 444000)),
+   ?assertEqual(ok, fix_parser:set_double_field(SideGrp, 14, 1111000)),
 
--spec create(string(), attrs(), flags()) -> {ok, parserRef()} | {error, reason()}.
-%% @doc creates new parser instance
-create(_Path, _Attrs, _Flags) ->
-   {error, library_not_loaded}.
+   {ok, PartyGrp1} = fix_parser:add_group(SideGrp, 453),
+   ?assertEqual(ok, fix_parser:set_string_field(PartyGrp1, 448, "FX_FF_FLXX")),
+   ?assertEqual(ok, fix_parser:set_char_field(PartyGrp1, 447, $D)),
+   ?assertEqual(ok, fix_parser:set_int32_field(PartyGrp1, 452, 38)),
 
--spec create_msg(parserRef(), string()) -> {ok, msgRef()} | {error, reason()}.
-create_msg(_ParserRef, _MsgType) ->
-   {error, library_not_loaded}.
+   {ok, PartyGrp2} = fix_parser:add_group(SideGrp, 453),
+   ?assertEqual(ok, fix_parser:set_string_field(PartyGrp2, 448, "FX_FF_FLYY")),
+   ?assertEqual(ok, fix_parser:set_char_field(PartyGrp2, 447, $D)),
+   ?assertEqual(ok, fix_parser:set_int32_field(PartyGrp2, 452, 41)),
 
--spec add_group(ref(), tagNum()) -> {ok, groupRef()} | {error, reason()}.
-add_group(_Ref, _TagNum) ->
-   {error, library_not_loaded}.
-
--spec get_group(ref(), tagNum(), pos_integer()) -> {ok, groupRef()} | {error, reason()}.
-get_group(_Ref, _TagNum, _Idx) ->
-   {error, library_not_loaded}.
-
--spec del_group(ref(), tagNum(), pos_integer()) -> {ok, groupRef()} | {error, reason()}.
-del_group(_Ref, _TagNum, _Idx) ->
-   {error, library_not_loaded}.
-
--spec set_int32_field(ref(), tagNum(), integer()) -> ok | {error, reason()}.
-set_int32_field(_MsgRef, _TagNum, _Value) ->
-   {error, library_not_loaded}.
-
--spec set_int64_field(ref(), tagNum(), integer()) -> ok | {error, reason()}.
-set_int64_field(_MsgRef, _FieldNum, _Value) ->
-   {error, library_not_loaded}.
-
--spec set_double_field(ref(), tagNum(), float()) -> ok | {error, reason()}.
-set_double_field(_MsgRef, _TagNum, _Value) ->
-   {error, library_not_loaded}.
-
--spec set_string_field(ref(), tagNum(), string()) -> ok | {error, reason()}.
-set_string_field(_MsgRef, _TagNum, _Value) ->
-   {error, library_not_loaded}.
-
--spec set_char_field(ref(), tagNum(), char()) -> ok | {error, reason()}.
-set_char_field(_MsgRef, _TagNum, _Value) ->
-   {error, library_not_loaded}.
-
--spec get_int32_field(ref(), tagNum()) -> {ok, integer()} | {error, reason()}.
-get_int32_field(_MsgRef, _TagNum) ->
-   {error, library_not_loaded}.
-
--spec get_int64_field(ref(), tagNum()) -> {ok, integer()} | {error, reason()}.
-get_int64_field(_MsgRef, _TagNum) ->
-   {error, library_not_loaded}.
-
--spec get_double_field(ref(), tagNum()) -> {ok, float()} | {error, reason()}.
-get_double_field(_MsgRef, _TagNum) ->
-   {error, library_not_loaded}.
-
--spec get_string_field(ref(), tagNum()) -> {ok, string()} | {error, reason()}.
-get_string_field(_MsgRef, _TagNum) ->
-   {error, library_not_loaded}.
-
--spec get_char_field(ref(), tagNum()) -> {ok, char()} | {error, reason()}.
-get_char_field(_MsgRef, _TagNum) ->
-   {error, library_not_loaded}.
-
--spec msg_to_fix(msgRef(), char()) -> {ok, char()} | {error, reason()}.
-msg_to_fix(_MsgRef, _Delimiter) ->
-   {error, library_not_loaded}.
-
--spec fix_to_msg(parserRef(), char(), binary()) -> {ok, msgRef(), binary()} | {error, reason()}.
-fix_to_msg(_ParserRef, _Delimiter, _BinData) ->
-   {error, library_not_loaded}.
+   ?assertEqual(ok, fix_parser:set_double_field(M, 381, 357333.12)).
