@@ -1,7 +1,8 @@
-/* @file   fix_parser.c
-   @author Dmitry S. Melnikov, dmitryme@gmail.com
-   @date   Created on: 11/07/2012 17:54:30 AM
-*/
+/**
+ * @file   fix_parser.c
+ * @author Dmitry S. Melnikov, dmitryme@gmail.com
+ * @date   Created on: 11/07/2012 17:54:30 AM
+ */
 
 #include <erl_nif.h>
 #include <linux/limits.h> // for PATH_MAX const
@@ -16,6 +17,9 @@
 
 static ERL_NIF_TERM ok_atom;
 static ERL_NIF_TERM error_atom;
+static ERL_NIF_TERM parser_atom;
+static ERL_NIF_TERM msg_atom;
+static ERL_NIF_TERM group_atom;
 static ErlNifResourceType* parser_res;
 static ErlNifResourceType* message_res;
 static ErlNifResourceType* group_res;
@@ -61,19 +65,28 @@ static int32_t load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
       NULL, ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER, NULL);
    ok_atom = enif_make_atom(env, "ok");
    error_atom = enif_make_atom(env, "error");
+   parser_atom = enif_make_atom(env, "parser");
+   msg_atom = enif_make_atom(env, "msg");
+   group_atom = enif_make_atom(env, "group");
    return 0;
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM get_parser(ErlNifEnv* env, ERL_NIF_TERM ref, ERL_NIF_TERM const** tuple, FIXParser** parser)
+static ERL_NIF_TERM get_parser(ErlNifEnv* env, ERL_NIF_TERM ref, ERL_NIF_TERM* pres, FIXParser** parser)
 {
+   ERL_NIF_TERM const* tuple = NULL;
    int32_t arity;
-   if (!enif_get_tuple(env, ref, &arity, tuple) || arity != 2)
+   if (!enif_get_tuple(env, ref, &arity, &tuple) || arity != 2)
    {
-      return make_error(env, "Wrong parserRef.");
+      return make_error(env, "Wrong parser reference.");
    }
+   if (enif_compare(tuple[0], parser_atom))
+   {
+      return make_error(env, "Wrong parser reference.");
+   }
+   *pres = tuple[1];
    void* res = NULL;
-   if (!enif_get_resource(env, (*tuple)[1], parser_res, &res))
+   if (!enif_get_resource(env, *pres, parser_res, &res))
    {
       return make_error(env, "Wrong parser resource.");
    }
@@ -82,21 +95,36 @@ static ERL_NIF_TERM get_parser(ErlNifEnv* env, ERL_NIF_TERM ref, ERL_NIF_TERM co
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM get_parser_msg(ErlNifEnv* env, ERL_NIF_TERM ref, ERL_NIF_TERM const** tuple, FIXParser** parser, FIXMsg** msg)
+static ERL_NIF_TERM get_parser_msg(
+      ErlNifEnv* env, ERL_NIF_TERM ref,
+      ERL_NIF_TERM* pres, ERL_NIF_TERM* mres,
+      FIXParser** parser, FIXMsg** msg)
 {
    int32_t arity;
-   if (!enif_get_tuple(env, ref, &arity, tuple) || arity != 3)
+   ERL_NIF_TERM const* tuple = NULL;
+   if (!enif_get_tuple(env, ref, &arity, &tuple) || arity != 3)
    {
-      return make_error(env, "Wrong msgRef.");
+      return make_error(env, "Wrong msg reference.");
    }
+   if (enif_compare(tuple[0], msg_atom))
+   {
+      return make_error(env, "Wrong msg reference.");
+   }
+   ERL_NIF_TERM const* data = NULL;
+   if (!enif_get_tuple(env, tuple[2], &arity, &data) || arity != 2)
+   {
+      return make_error(env, "Wrong msg reference.");
+   }
+   *pres = data[0];
+   *mres = data[1];
    void* res = NULL;
-   if (!enif_get_resource(env, (*tuple)[1], parser_res, &res))
+   if (!enif_get_resource(env, *pres, parser_res, &res))
    {
       return make_error(env, "Wrong parser resource.");
    }
    *parser = *(FIXParser**)res;
 
-   if (!enif_get_resource(env, (*tuple)[2], message_res, &res))
+   if (!enif_get_resource(env, *mres, message_res, &res))
    {
       return make_error(env, "Wrong message resource.");
    }
@@ -106,28 +134,56 @@ static ERL_NIF_TERM get_parser_msg(ErlNifEnv* env, ERL_NIF_TERM ref, ERL_NIF_TER
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_parser_msg_group(
-      ErlNifEnv* env, ERL_NIF_TERM ref, ERL_NIF_TERM const** tuple, FIXParser** parser, FIXMsg** msg, FIXGroup** group)
+      ErlNifEnv* env, ERL_NIF_TERM ref,
+      ERL_NIF_TERM* pres, ERL_NIF_TERM* mres, ERL_NIF_TERM* gres,
+      FIXParser** parser, FIXMsg** msg, FIXGroup** group)
 {
    int32_t arity;
-   if (!enif_get_tuple(env, ref, &arity, tuple) || (arity != 3 && arity != 4))
+   ERL_NIF_TERM const* tuple = NULL;
+   if (!enif_get_tuple(env, ref, &arity, &tuple) || (arity != 2 && arity != 3))
    {
-      return make_error(env, "Wrong msgRef.");
+      return make_error(env, "Wrong msg reference1.");
+   }
+   if (enif_compare(tuple[0], msg_atom) && enif_compare(tuple[0], group_atom))
+   {
+      return make_error(env, "Wrong msg reference2.");
+   }
+   ERL_NIF_TERM const* data = NULL;
+   if (arity == 3) // this is a message
+   {
+      if (!enif_get_tuple(env, tuple[2], &arity, &data) || arity != 2)
+      {
+         return make_error(env, "Wrong msg reference3.");
+      }
+   }
+   else // this is a group
+   {
+      if (!enif_get_tuple(env, tuple[1], &arity, &data) || arity != 3)
+      {
+         return make_error(env, "Wrong msg reference4.");
+      }
+   }
+   *pres = data[0];
+   *mres = data[1];
+   if (arity == 3) // group exists
+   {
+      *gres = data[2];
    }
    void* res = NULL;
-   if (!enif_get_resource(env, (*tuple)[1], parser_res, &res))
+   if (!enif_get_resource(env, *pres, parser_res, &res))
    {
       return make_error(env, "Wrong parser resource.");
    }
    *parser = *(FIXParser**)res;
 
-   if (!enif_get_resource(env, (*tuple)[2], message_res, &res))
+   if (!enif_get_resource(env, *mres, message_res, &res))
    {
       return make_error(env, "Wrong message resource.");
    }
    *msg = *(FIXMsg**)res;
-   if (arity == 4) // group exists
+   if (arity == 3) // group exists
    {
-      if (!enif_get_resource(env, (*tuple)[3], group_res, &res))
+      if (!enif_get_resource(env, *gres, group_res, &res))
       {
          return make_error(env, "Wrong group resource.");
       }
@@ -202,31 +258,26 @@ static ERL_NIF_TERM create(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv
    FIXParser* parser = fix_parser_create(path, &attrs, flags);
    if (!parser)
    {
-      return make_parser_error(env, get_fix_error_code(), get_fix_error_text());
+      return make_parser_error(env, fix_error_get_code(), fix_error_get_text());
    }
    FIXParser** pres = (FIXParser**)enif_alloc_resource(parser_res, sizeof(FIXParser*));
    *pres = parser;
    ERL_NIF_TERM pres_term = enif_make_resource(env, pres);
    enif_release_resource(pres);
-   return enif_make_tuple2(env, ok_atom, enif_make_tuple2(env, enif_make_ref(env), pres_term));
+   return enif_make_tuple2(env, ok_atom, enif_make_tuple2(env, parser_atom, pres_term));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM create_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   int32_t arity;
-   ERL_NIF_TERM const* tuple = NULL;
-   if (!enif_get_tuple(env, argv[0], &arity, &tuple) || arity != 2)
+   ERL_NIF_TERM pres;
+   FIXParser* parser = NULL;
+   ERL_NIF_TERM res = get_parser(env, argv[0], &pres, &parser);
+   if (res != ok_atom)
    {
-      return make_error(env, "Wrong parserRef.");
+      return res;
    }
-   void* res = NULL;
-   if (!enif_get_resource(env, tuple[1], parser_res, &res))
-   {
-      return make_error(env, "Wrong parser resource.");
-   }
-   FIXParser* parser = *(FIXParser**)res;
-   char msgType[12];
+   char msgType[12] = {};
    if (enif_get_string(env, argv[1], msgType, sizeof(msgType), ERL_NIF_LATIN1) <= 0)
    {
       return make_error(env, "Wrong msgType.");
@@ -234,23 +285,31 @@ static ERL_NIF_TERM create_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
    FIXMsg* msg = fix_msg_create(parser, msgType);
    if (!msg)
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    FIXMsg** pmsg = (FIXMsg**)enif_alloc_resource(message_res, sizeof(FIXMsg*));
    *pmsg = msg;
    ERL_NIF_TERM pmsg_term = enif_make_resource(env, pmsg);
    enif_release_resource(pmsg);
-   return enif_make_tuple2(env, ok_atom, enif_make_tuple3(env, enif_make_ref(env), tuple[1], pmsg_term));
+   return enif_make_tuple2(
+         env,
+         ok_atom,
+         enif_make_tuple3(env,
+            msg_atom,
+            enif_make_string(env, msgType, ERL_NIF_LATIN1),
+            enif_make_tuple2(env, pres, pmsg_term)));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM add_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM pres;
+   ERL_NIF_TERM mres;
+   ERL_NIF_TERM gres;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &pres, &mres, &gres, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -263,24 +322,28 @@ static ERL_NIF_TERM add_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const a
    FIXGroup* new_group = fix_msg_add_group(msg, group, tagNum);
    if (!new_group)
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    FIXGroup** grp = (FIXGroup**)enif_alloc_resource(group_res, sizeof(FIXGroup*));
    *grp = new_group;
    ERL_NIF_TERM grp_term = enif_make_resource(env, grp);
    enif_release_resource(grp);
-   return enif_make_tuple2(env, ok_atom, enif_make_tuple4(
-            env, enif_make_ref(env), tuple[1], tuple[2], grp_term));
+   return enif_make_tuple2(env, ok_atom, enif_make_tuple2(
+            env,
+            group_atom,
+            enif_make_tuple3(env, pres, mres, grp_term)));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM pres;
+   ERL_NIF_TERM mres;
+   ERL_NIF_TERM gres;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &pres, &mres, &gres, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -298,24 +361,28 @@ static ERL_NIF_TERM get_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const a
    FIXGroup* ret_group = fix_msg_get_group(msg, group, tagNum, idx);
    if (!ret_group)
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    FIXGroup** grp = (FIXGroup**)enif_alloc_resource(group_res, sizeof(FIXGroup*));
    *grp = ret_group;
    ERL_NIF_TERM grp_term = enif_make_resource(env, grp);
    enif_release_resource(grp);
-   return enif_make_tuple2(env, ok_atom, enif_make_tuple4(
-            env, enif_make_ref(env), tuple[1], tuple[2], grp_term));
+   return enif_make_tuple2(env, ok_atom, enif_make_tuple2(
+            env,
+            group_atom,
+            enif_make_tuple3(env, pres, mres, grp_term)));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM del_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -332,7 +399,7 @@ static ERL_NIF_TERM del_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const a
    }
    if (FIX_FAILED == fix_msg_del_group(msg, group, tagNum, idx))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return ok_atom;
 }
@@ -340,11 +407,13 @@ static ERL_NIF_TERM del_group(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const a
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM set_int32_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -365,7 +434,7 @@ static ERL_NIF_TERM set_int32_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM c
    }
    if (FIX_FAILED == fix_msg_set_int32(msg, group, tagNum, val))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return ok_atom;
 }
@@ -373,11 +442,13 @@ static ERL_NIF_TERM set_int32_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM c
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM set_int64_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -398,7 +469,7 @@ static ERL_NIF_TERM set_int64_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM c
    }
    if (FIX_FAILED == fix_msg_set_int64(msg, group, tagNum, val))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return ok_atom;
 }
@@ -406,11 +477,13 @@ static ERL_NIF_TERM set_int64_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM c
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -431,7 +504,7 @@ static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
    }
    if (FIX_FAILED == fix_msg_set_double(msg, group, tagNum, val))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return ok_atom;
 }
@@ -439,11 +512,13 @@ static ERL_NIF_TERM set_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -470,7 +545,7 @@ static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
       buff[len] = 0;
       if (FIX_FAILED == fix_msg_set_string(msg, group, tagNum, buff))
       {
-         ret = make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+         ret = make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
       }
    }
    free(buff);
@@ -480,11 +555,13 @@ static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM set_char_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -506,19 +583,27 @@ static ERL_NIF_TERM set_char_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM co
    }
    if (FIX_FAILED == fix_msg_set_char(msg, group, tagNum, (char)val))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return ok_atom;
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM set_data_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+{
+   return make_error(env, "not impemented yet");
+}
+
+/*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_int32_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -531,7 +616,7 @@ static ERL_NIF_TERM get_int32_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM c
    int32_t val = 0;
    if (FIX_FAILED == fix_msg_get_int32(msg, group, tagNum, &val))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return enif_make_tuple2(env, ok_atom, enif_make_int(env, val));
 }
@@ -539,11 +624,13 @@ static ERL_NIF_TERM get_int32_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM c
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_int64_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -556,7 +643,7 @@ static ERL_NIF_TERM get_int64_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM c
    int64_t val = 0;
    if (FIX_FAILED == fix_msg_get_int64(msg, group, tagNum, &val))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return enif_make_tuple2(env, ok_atom, enif_make_int64(env, val));
 }
@@ -564,11 +651,13 @@ static ERL_NIF_TERM get_int64_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM c
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -581,7 +670,7 @@ static ERL_NIF_TERM get_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
    double val = 0;
    if (FIX_FAILED == fix_msg_get_double(msg, group, tagNum, &val))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return enif_make_tuple2(env, ok_atom, enif_make_double(env, val));
 }
@@ -589,11 +678,13 @@ static ERL_NIF_TERM get_double_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -607,7 +698,7 @@ static ERL_NIF_TERM get_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
    uint32_t len = 0;
    if (FIX_FAILED == fix_msg_get_string(msg, group, tagNum, &data, &len))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return enif_make_tuple2(env, ok_atom, enif_make_string_len(env, data, len, ERL_NIF_LATIN1));
 }
@@ -615,11 +706,13 @@ static ERL_NIF_TERM get_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_char_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
+   ERL_NIF_TERM group_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
    FIXGroup* group = NULL;
-   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &tuple, &parser, &msg, &group);
+   ERL_NIF_TERM res = get_parser_msg_group(env, argv[0], &parser_res, &msg_res, &group_res, &parser, &msg, &group);
    if (res != ok_atom)
    {
       return res;
@@ -632,18 +725,25 @@ static ERL_NIF_TERM get_char_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM co
    char val;
    if (FIX_FAILED == fix_msg_get_char(msg, group, tagNum, &val))
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    return enif_make_tuple2(env, ok_atom, enif_make_int(env, val));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM msg_to_fix(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM get_data_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   return make_error(env, "not impemented yet");
+}
+
+/*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM msg_to_str(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+{
+   ERL_NIF_TERM parser_res;
+   ERL_NIF_TERM msg_res;
    FIXParser* parser = NULL;
    FIXMsg* msg = NULL;
-   ERL_NIF_TERM res = get_parser_msg(env, argv[0], &tuple, &parser, &msg);
+   ERL_NIF_TERM res = get_parser_msg(env, argv[0], &parser_res, &msg_res, &parser, &msg);
    if (res != ok_atom)
    {
       return res;
@@ -659,7 +759,7 @@ static ERL_NIF_TERM msg_to_fix(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
    {
       return make_error(env, "Unable to allocate binary.");
    }
-   if (FIX_FAILED == fix_msg_to_fix(msg, (char)delimiter, (char*)bin.data, bin.size, &reqBuffLen))
+   if (FIX_FAILED == fix_msg_to_str(msg, (char)delimiter, (char*)bin.data, bin.size, &reqBuffLen))
    {
       if (reqBuffLen > bin.size) // realloc needed
       {
@@ -667,14 +767,14 @@ static ERL_NIF_TERM msg_to_fix(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
          {
             res = make_error(env, "Unable to reallocate binary.");
          }
-         if (FIX_FAILED == fix_msg_to_fix(msg, (char)delimiter, (char*)bin.data, bin.size, &reqBuffLen))
+         if (FIX_FAILED == fix_msg_to_str(msg, (char)delimiter, (char*)bin.data, bin.size, &reqBuffLen))
          {
-            res = make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+            res = make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
          }
       }
       else
       {
-         res = make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+         res = make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
       }
    }
    if (res != ok_atom)
@@ -692,11 +792,11 @@ static ERL_NIF_TERM msg_to_fix(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM fix_to_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM str_to_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   ERL_NIF_TERM const* tuple;
+   ERL_NIF_TERM parser_res;
    FIXParser* parser = NULL;
-   ERL_NIF_TERM res = get_parser(env, argv[0], &tuple, &parser);
+   ERL_NIF_TERM res = get_parser(env, argv[0], &parser_res, &parser);
    if (res != ok_atom)
    {
       return res;
@@ -712,20 +812,26 @@ static ERL_NIF_TERM fix_to_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
       return make_error(env, "Wrong binary.");
    }
    char const* stop = NULL;
-   FIXMsg* fix_msg = fix_parser_fix_to_msg(parser, (char const*)bin.data, bin.size, delimiter, &stop);
+   FIXMsg* fix_msg = fix_parser_str_to_msg(parser, (char const*)bin.data, bin.size, delimiter, &stop);
    if (!fix_msg)
    {
-      return make_parser_error(env, get_fix_parser_error_code(parser), get_fix_parser_error_text(parser));
+      return make_parser_error(env, fix_parser_get_error_code(parser), fix_parser_get_error_text(parser));
    }
    FIXMsg** pfix_msg = (FIXMsg**)enif_alloc_resource(message_res, sizeof(FIXMsg*));
    *pfix_msg = fix_msg;
    ERL_NIF_TERM pfix_msg_term = enif_make_resource(env, pfix_msg);
    enif_release_resource(pfix_msg);
    uint32_t pos = stop - (char const*)bin.data + 1;
+   char const* msgType = NULL;
+   uint32_t len = 0;
+   fix_msg_get_string(fix_msg, NULL, FIXFieldTag_MsgType, &msgType, &len);
    return enif_make_tuple3(
          env,
          ok_atom,
-         enif_make_tuple3(env, enif_make_ref(env), tuple[1], pfix_msg_term),
+         enif_make_tuple3(env,
+            msg_atom,
+            enif_make_string_len(env, msgType, len, ERL_NIF_LATIN1),
+            enif_make_tuple2(env, parser_res, pfix_msg_term)),
          enif_make_sub_binary(env, argv[2], pos, bin.size - pos));
 }
 
@@ -742,13 +848,15 @@ static ErlNifFunc nif_funcs[] =
    {"set_double_field",  3, set_double_field },
    {"set_string_field",  3, set_string_field },
    {"set_char_field",    3, set_char_field   },
+   {"set_data_field",    3, set_data_field   },
    {"get_int32_field",   2, get_int32_field  },
    {"get_int64_field",   2, get_int64_field  },
    {"get_double_field",  2, get_double_field },
    {"get_string_field",  2, get_string_field },
    {"get_char_field",    2, get_char_field   },
-   {"msg_to_fix",        2, msg_to_fix       },
-   {"fix_to_msg",        3, fix_to_msg       }
+   {"get_data_field",    2, get_data_field   },
+   {"msg_to_str",        2, msg_to_str       },
+   {"str_to_msg",        3, str_to_msg       }
 };
 
 ERL_NIF_INIT(fix_parser, nif_funcs, load, NULL, NULL, NULL)
