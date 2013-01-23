@@ -1,11 +1,12 @@
 -module(fix_parser_test).
 
 -include_lib("eunit/include/eunit.hrl").
+-include("erlang_fix.hrl").
 
 -compile([export_all]).
 
 test1_test() ->
-   {ok, P} = fix_parser:create("../deps/fix_parser/fix_descr/fix.4.4.perf.xml", [], []),
+   {ok, P} = fix_parser:create("../deps/fix_parser/fix_descr/fix.4.4.xml", [], []),
    {ok, M} = fix_parser:create_msg(P, "8"),
    ?assertEqual(ok, fix_parser:set_string_field(M, 49, "QWERTY_12345678")),
    ?assertEqual(ok, fix_parser:set_string_field(M, 56, "ABCQWE_XYZ")),
@@ -30,8 +31,8 @@ test1_test() ->
    ?assertEqual(ok, fix_parser:set_double_field(M, 6, 0)),
    ?assertEqual(ok, fix_parser:set_char_field(M, 21, $1)),
    ?assertEqual(ok, fix_parser:set_string_field(M, 58, "COMMENT12")),
-   {ok, Fix} = fix_parser:msg_to_fix(M, $|),
-   Res = {ok, M1, _} = fix_parser:fix_to_msg(P, $|, Fix),
+   {ok, Fix} = fix_parser:msg_to_str(M, $|),
+   Res = {ok, M1, _} = fix_parser:str_to_msg(P, $|, Fix),
    ?assertMatch({ok, _, <<>>}, Res),
    ?assertEqual({ok, "QWERTY_12345678"}, fix_parser:get_string_field(M1, 49)),
    ?assertEqual({ok, "ABCQWE_XYZ"}, fix_parser:get_string_field(M1, 56)),
