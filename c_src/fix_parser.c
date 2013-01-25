@@ -822,15 +822,13 @@ static ERL_NIF_TERM str_to_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
    ERL_NIF_TERM pfix_msg_term = enif_make_resource(env, pfix_msg);
    enif_release_resource(pfix_msg);
    uint32_t pos = stop - (char const*)bin.data + 1;
-   char const* msgType = NULL;
-   uint32_t len = 0;
-   fix_msg_get_string(fix_msg, NULL, FIXFieldTag_MsgType, &msgType, &len);
+   char const* msgType = fix_msg_get_type(fix_msg);
    return enif_make_tuple3(
          env,
          ok_atom,
          enif_make_tuple3(env,
             msg_atom,
-            enif_make_string_len(env, msgType, len, ERL_NIF_LATIN1),
+            enif_make_string(env, msgType, ERL_NIF_LATIN1),
             enif_make_tuple2(env, parser_res, pfix_msg_term)),
          enif_make_sub_binary(env, argv[2], pos, bin.size - pos));
 }
