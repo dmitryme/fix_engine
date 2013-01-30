@@ -5,7 +5,7 @@
 -export([create/3, create_msg/2, add_group/2, get_group/3, del_group/3,
       set_int32_field/3, set_int64_field/3, set_double_field/3, set_string_field/3, set_char_field/3, set_data_field/3,
       get_int32_field/2, get_int64_field/2, get_double_field/2, get_string_field/2, get_char_field/2, get_data_field/2,
-      msg_to_str/2, str_to_msg/3]).
+      get_session_id/2, msg_to_str/2, str_to_msg/3]).
 
 -on_load(load_lib/0).
 
@@ -79,6 +79,10 @@ get_char_field(_MsgRef, _TagNum) ->
 
 -spec get_data_field(ref(), tagNum()) -> {ok, binary()} | {error, reason()}.
 get_data_field(_MsgRef, _TagNum) ->
+   {error, library_not_loaded}.
+
+-spec get_session_id(binary(), char()) -> {string(), string()}.
+get_session_id(_BinData, _Delimiter) ->
    {error, library_not_loaded}.
 
 -spec msg_to_str(#msg{}, char()) -> {ok, binary()} | {error, reason()}.
