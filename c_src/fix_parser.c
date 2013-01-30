@@ -737,6 +737,30 @@ static ERL_NIF_TERM get_data_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM co
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM get_session_id(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+{
+   return make_error(env, "not impemented yet");
+   ERL_NIF_TERM parser_res;
+   FIXParser* parser = NULL;
+   ERL_NIF_TERM res = get_parser(env, argv[0], &parser_res, &parser);
+   if (res != ok_atom)
+   {
+      return res;
+   }
+   int32_t delimiter = 0;
+   if (!enif_get_int(env, argv[1], &delimiter) || delimiter <= 0 || delimiter >= 255)
+   {
+      return make_error(env, "Wrong delimiter.");
+   }
+   ErlNifBinary bin;
+   if (!enif_inspect_binary(env, argv[2], &bin))
+   {
+      return make_error(env, "Wrong binary.");
+   }
+   return ok_atom;
+}
+
+/*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM msg_to_str(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    ERL_NIF_TERM parser_res;
@@ -853,6 +877,7 @@ static ErlNifFunc nif_funcs[] =
    {"get_string_field",  2, get_string_field },
    {"get_char_field",    2, get_char_field   },
    {"get_data_field",    2, get_data_field   },
+   {"get_session_id",    2, get_session_id   },
    {"msg_to_str",        2, msg_to_str       },
    {"str_to_msg",        3, str_to_msg       }
 };
