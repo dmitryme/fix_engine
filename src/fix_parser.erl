@@ -81,7 +81,7 @@ get_char_field(_MsgRef, _TagNum) ->
 get_data_field(_MsgRef, _TagNum) ->
    {error, library_not_loaded}.
 
--spec msg_to_str(#msg{}, char()) -> {ok, char()} | {error, reason()}.
+-spec msg_to_str(#msg{}, char()) -> {ok, binary()} | {error, reason()}.
 msg_to_str(_MsgRef, _Delimiter) ->
    {error, library_not_loaded}.
 
