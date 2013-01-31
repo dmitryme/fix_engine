@@ -255,10 +255,13 @@ static ERL_NIF_TERM create(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv
          return make_error(env, "Unsupported flag '%s'.", flag);
       }
    }
-   FIXParser* parser = fix_parser_create(path, &attrs, flags);
+   FIXError* error = NULL;
+   FIXParser* parser = fix_parser_create(path, &attrs, flags, &error);
    if (!parser)
    {
-      return make_parser_error(env, fix_error_get_code(), fix_error_get_text());
+      ERL_NIF_TERM ret = make_parser_error(env, fix_error_get_code(error), fix_error_get_text(error));
+      free(error);
+      return ret;
    }
    FIXParser** pres = (FIXParser**)enif_alloc_resource(parser_res, sizeof(FIXParser*));
    *pres = parser;
@@ -739,25 +742,31 @@ static ERL_NIF_TERM get_data_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM co
 /*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM get_session_id(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
-   return make_error(env, "not impemented yet");
-   ERL_NIF_TERM parser_res;
-   FIXParser* parser = NULL;
-   ERL_NIF_TERM res = get_parser(env, argv[0], &parser_res, &parser);
-   if (res != ok_atom)
-   {
-      return res;
-   }
    int32_t delimiter = 0;
-   if (!enif_get_int(env, argv[1], &delimiter) || delimiter <= 0 || delimiter >= 255)
+   ErlNifBinary bin;
+   if (!enif_inspect_binary(env, argv[0], &bin))
    {
       return make_error(env, "Wrong delimiter.");
    }
-   ErlNifBinary bin;
-   if (!enif_inspect_binary(env, argv[2], &bin))
+   if (!enif_get_int(env, argv[1], &delimiter) || delimiter <= 0 || delimiter >= 255)
    {
       return make_error(env, "Wrong binary.");
    }
-   return ok_atom;
+   char const* senderCompID = NULL;
+   uint32_t senderCompIDLen = 0;
+   char const* targetCompID = NULL;
+   uint32_t targetCompIDLen = 0;
+   FIXError* error = NULL;
+   if (FIX_FAILED == fix_parser_get_session_id((char const*)bin.data, bin.size, delimiter,
+         &senderCompID, &senderCompIDLen, &targetCompID, &targetCompIDLen, &error))
+   {
+      ERL_NIF_TERM err = make_error(env, fix_error_get_text(error));
+      free(error);
+      return err;
+   }
+   return enif_make_tuple3(env, ok_atom,
+         enif_make_string_len(env, senderCompID, senderCompIDLen, ERL_NIF_LATIN1),
+         enif_make_string_len(env, targetCompID, targetCompIDLen, ERL_NIF_LATIN1));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
