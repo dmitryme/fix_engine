@@ -113,3 +113,8 @@ test2_test() ->
    ?assertEqual(ok, fix_parser:set_int32_field(PartyGrp2, ?FIXFieldTag_PartyRole, 41)),
 
    ?assertEqual(ok, fix_parser:set_double_field(M, ?FIXFieldTag_GrossTradeAmt, 357333.12)).
+
+test3_test() ->
+   Logon = <<"8=FIX.4.4\0019=139\00135=A\00149=dmelnikov1_test_robot1\00156=crossing_engine\00134=1\00152=20130130-14:50:33.448\00198=0\001108=30\001141=Y\001553=dmelnikov\001554=xlltlib(1.0):dmelnikov\00110=196\001">>,
+   Res = fix_parser:get_session_id(Logon, 1),
+   ?assertEqual({ok, "dmelnikov1_test_robot1", "crossing_engine"}, Res).
