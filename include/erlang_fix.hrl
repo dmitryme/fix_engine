@@ -25,3 +25,30 @@
 -type reason()    :: atom() |
                      string() |
                      {pos_integer(), string()}.
+
+-define(FIX_SOH,                            1).
+-define(FIX_FAILED,                        -1).
+-define(FIX_SUCCESS,                        0).
+-define(FIX_ERROR_FIELD_HAS_WRONG_TYPE,     1).
+-define(FIX_ERROR_FIELD_NOT_FOUND,          2).
+-define(FIX_ERROR_FIELD_TYPE_EXISTS,        3).
+-define(FIX_ERROR_GROUP_WRONG_INDEX,        4).
+-define(FIX_ERROR_XML_ATTR_NOT_FOUND,       5).
+-define(FIX_ERROR_XML_ATTR_WRONG_VALUE,     6).
+-define(FIX_ERROR_PROTOCOL_XML_LOAD_FAILED, 7).
+-define(FIX_ERROR_UNKNOWN_FIELD,            8).
+-define(FIX_ERROR_WRONG_PROTOCOL_VER,       9).
+-define(FIX_ERROR_DUPLICATE_FIELD_DESCR,    10).
+-define(FIX_ERROR_UNKNOWN_MSG,              11).
+-define(FIX_ERROR_LIBXML,                   12).
+-define(FIX_ERROR_INVALID_ARGUMENT,         13).
+-define(FIX_ERROR_MALLOC,                   14).
+-define(FIX_ERROR_UNKNOWN_PROTOCOL_DESCR,   15).
+-define(FIX_ERROR_NO_MORE_PAGES,            16).
+-define(FIX_ERROR_NO_MORE_GROUPS,           17).
+-define(FIX_ERROR_TOO_BIG_PAGE,             18).
+-define(FIX_ERROR_NO_MORE_SPACE,            19).
+-define(FIX_ERROR_PARSE_MSG,                20).
+-define(FIX_ERROR_WRONG_FIELD,              21).
+-define(FIX_ERROR_INTEGRITY_CHECK,          22).
+-define(FIX_ERROR_BODY_TOO_SHORT,           23).
