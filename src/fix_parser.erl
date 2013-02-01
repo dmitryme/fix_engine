@@ -1,6 +1,6 @@
 -module(fix_parser).
 
--include("erlang_fix.hrl").
+-include("fix_parser.hrl").
 
 -export([create/3, create_msg/2, add_group/2, get_group/3, del_group/3,
       set_int32_field/3, set_int64_field/3, set_double_field/3, set_string_field/3, set_char_field/3, set_data_field/3,
