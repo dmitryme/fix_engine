@@ -20,13 +20,8 @@
       port         :: pos_integer()
    }).
 
--record(fix_engine_acceptor_config,
+-record(fix_engine_config,
    {
       listenPort :: pos_integer(),
-      sessions :: [#fix_session_acceptor_config{}]
-   }).
-
--record(fix_engine_initiator_config,
-   {
-      sessions :: [#fix_session_initiator_config{}]
+      sessions :: [#fix_session_acceptor_config{}|#fix_session_initiator_config{}]
    }).
