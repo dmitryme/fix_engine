@@ -1,7 +1,7 @@
 -module(fix_parser_test).
 
 -include_lib("eunit/include/eunit.hrl").
--include("erlang_fix.hrl").
+-include("fix_parser.hrl").
 -include("fix_fields.hrl").
 
 -compile([export_all]).
