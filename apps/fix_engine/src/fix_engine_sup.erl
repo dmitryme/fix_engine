@@ -1,5 +1,4 @@
-
--module(erlang_fix_sup).
+-module(fix_engine_sup).
 
 -behaviour(supervisor).
 
@@ -25,4 +24,3 @@ start_link() ->
 
 init([]) ->
     {ok, { {one_for_one, 5, 10}, []} }.
-
