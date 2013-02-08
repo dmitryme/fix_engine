@@ -36,9 +36,11 @@ handle_cast(_Request, State) ->
 
 handle_info({inet_async, ListenSocket, _Ref, {ok, ClientSocket}}, State) ->
    case inet:peername(ClientSocket) of
-      {ok, PeerInfo} -> error_logger:info_msg("New connection ~p accepted.", [PeerInfo]);
+      {ok, PeerInfo} -> error_logger:info_msg("New connection [~p] accepted. Socket = [~p].", [PeerInfo, ClientSocket]);
       {error, ErrCode} -> exit({peername_error, ErrCode})
    end,
+   SAPid = session_acceptor:start_link(ClientSocket, State#state.acceptors, 1000),
+   gen_tcp:controlling_process(ClientSocket, SAPid),
    case prim_inet:async_accept(ListenSocket, -1) of
       {ok, NewRef} -> ok;
       {error, NewRef} -> exit({async_accept, inet:format_error(NewRef)})
