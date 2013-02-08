@@ -271,6 +271,20 @@ static ERL_NIF_TERM create(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
+static ERL_NIF_TERM get_version(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+{
+   ERL_NIF_TERM pres;
+   FIXParser* parser = NULL;
+   ERL_NIF_TERM res = get_parser(env, argv[0], &pres, &parser);
+   if (res != ok_atom)
+   {
+      return res;
+   }
+   char const* ver = fix_parser_get_protocol_ver(parser);
+   return enif_make_string(env, ver, ERL_NIF_LATIN1);
+}
+
+/*-----------------------------------------------------------------------------------------------------------------------*/
 static ERL_NIF_TERM create_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    ERL_NIF_TERM pres;
@@ -870,6 +884,7 @@ static ERL_NIF_TERM str_to_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
 static ErlNifFunc nif_funcs[] =
 {
    {"create",            3, create           },
+   {"get_version",       1, get_version      },
    {"create_msg",        2, create_msg       },
    {"add_group",         2, add_group        },
    {"get_group",         3, get_group        },
