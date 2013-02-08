@@ -9,6 +9,7 @@
 test1_test() ->
    {ok, P} = fix_parser:create("../deps/fix_parser/fix_descr/fix.4.4.xml", [], []),
    {ok, M} = fix_parser:create_msg(P, "8"),
+   ?assertEqual("FIX.4.4", fix_parser:get_version(P)),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_SenderCompID, "QWERTY_12345678")),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_TargetCompID, "ABCQWE_XYZ")),
    ?assertEqual(ok, fix_parser:set_int32_field(M,  ?FIXFieldTag_MsgSeqNum, 34)),
@@ -62,6 +63,7 @@ test1_test() ->
 test2_test() ->
    {ok, P} = fix_parser:create("../deps/fix_parser/fix_descr/fix.5.0.sp2.xml", [], []),
    {ok, M} = fix_parser:create_msg(P, "AE"),
+   ?assertEqual("FIX.5.0.SP2", fix_parser:get_version(P)),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_ApplVerID, "9")),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_TradeReportID, "121111_1_3999")),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_TradeID, "121111_1_3999")),
