@@ -8,7 +8,7 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {}).
+-record(state, {parser}).
 
 send_logon(SessionID, Socket, Logon, Timeout) ->
    case catch gen_server:call(SessionID, {logon, Socket, Logon}, Timeout) of
@@ -20,14 +20,27 @@ send_logon(SessionID, Socket, Logon, Timeout) ->
 
 start_link(Args = #fix_session_acceptor_config{senderCompID = SenderCompID, targetCompID = TargetCompID}) ->
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
-   gen_server:start_link({local, SessionID}, ?MODULE, Args);
+   error_logger:info_msg("Starting acceptor session ~p~n", [SessionID]),
+   gen_server:start_link({local, SessionID}, ?MODULE, Args, []);
 
 start_link(Args = #fix_session_initiator_config{senderCompID = SenderCompID, targetCompID = TargetCompID}) ->
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
-   gen_server:start_link({local, SessionID}, ?MODULE, Args).
+   error_logger:info_msg("Starting initiator session ~p~n", [SessionID]),
+   gen_server:start_link({local, SessionID}, ?MODULE, Args, []).
 
-init(_Args) ->
-   {ok, #state{}}.
+init(#fix_session_acceptor_config{fix_protocol = Protocol}) ->
+   case fix_parser:create(Protocol, [], []) of
+      {ok, ParserRef} -> error_logger:info_msg("Parser ~p has been created.", [fix_parser:get_version(ParserRef)]);
+      {error, ParserRef} -> exit({fix_parser_error, ParserRef})
+   end,
+   {ok, #state{parser = ParserRef}};
+
+init(#fix_session_initiator_config{fix_protocol = Protocol}) ->
+   case fix_parser:create(Protocol, [], []) of
+      {ok, ParserRef} -> error_logger:info_msg("Parser ~p has been created.", [fix_parser:get_version(ParserRef)]);
+      {error, ParserRef} -> exit({fix_parser_error, ParserRef})
+   end,
+   {ok, #state{parser = ParserRef}}.
 
 handle_call({logon, Socket, LogonBin}, _From, State) ->
    {reply, ok, State};
