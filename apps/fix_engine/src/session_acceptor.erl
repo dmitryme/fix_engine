@@ -2,13 +2,21 @@
 
 -include("fix_parser.hrl").
 
--export([start_link/3, loop/3]).
+-export([start_link/2, loop/2, set_socket/2]).
 
-start_link(Socket, Acceptors, Timeout) ->
-   spawn_link(fun() -> loop(Socket, Acceptors, Timeout) end).
+start_link(Acceptors, Timeout) ->
+   spawn_link(fun() -> loop(Acceptors, Timeout) end).
 
-loop(Socket, Acceptors, Timeout) ->
-   loop(Socket, Acceptors, Timeout, <<>>).
+set_socket(Pid, Socket) ->
+   Pid ! {set_socket, Socket}.
+
+loop(Acceptors, Timeout) ->
+   receive
+      {set_socket, Socket} ->
+         loop(Socket, Acceptors, Timeout, <<>>);
+      UnknownMessage ->
+         error_logger:error_msg("Unknown message [~p] received.", [UnknownMessage])
+   end.
 
 loop(Socket, Acceptors, Timeout, LogonPart) ->
    inet:setopts(Socket, [{active, once}]),
@@ -18,27 +26,19 @@ loop(Socket, Acceptors, Timeout, LogonPart) ->
       {tcp_error, Socket, Reason} ->
          error_logger:info_msg("Peer socket [~p] error. Reason = [~p].", [Socket, Reason]),
          gen_tcp:close(Socket);
-      {tcp, _, Data} ->
-         error_logger:info_msg("Data = [~p]", [Data]),
+      {tcp, Socket, Data} ->
          Logon = <<LogonPart/binary, Data/binary>>,
          case fix_parser:get_session_id(Logon, ?FIX_SOH) of
             {ok, SenderCompID, TargetCompID} ->
                SessionID = fix_utils:make_session_id(TargetCompID,  SenderCompID),
                error_logger:info_msg("New incoming session [~p] detected.", [SessionID]),
                case ets:lookup(Acceptors, SessionID) of
-                  [SessionPid] -> ok;
+                  [{SessionID, SessionPid}] ->
+                     gen_tcp:controlling_process(Socket, SessionPid),
+                     gen_fix_session:send_logon(SessionPid, Socket, Logon, Timeout);
                   [] ->
-                     SessionPid = undef,
                      error_logger:error_msg("No such session [~p] configured.", [SessionID]),
                      gen_tcp:close(Socket)
-               end,
-               case gen_fix_session:send_logon(SessionPid, Socket, Logon, Timeout) of
-                  {error, noproc} ->
-                     error_logger:warning_msg("No such session [~p]", [SessionID]),
-                     gen_tcp:close(Socket);
-                  ok ->
-                     gen_tcp:controlling_process(Socket, SessionPid),
-                     ok
                end;
             {error, ?FIX_ERROR_BODY_TOO_SHORT, _} ->
                ?MODULE:loop(Socket, Acceptors, Timeout, Logon);
