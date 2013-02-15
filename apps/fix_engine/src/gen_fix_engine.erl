@@ -39,8 +39,22 @@ handle_info({inet_async, ListenSocket, _Ref, {ok, ClientSocket}}, State) ->
       {ok, PeerInfo} -> error_logger:info_msg("New connection [~p] accepted. Socket = [~p].", [PeerInfo, ClientSocket]);
       {error, ErrCode} -> exit({peername_error, ErrCode})
    end,
-   SAPid = session_acceptor:start_link(ClientSocket, State#state.acceptors, 1000),
+   inet_db:register_socket(ClientSocket, inet_tcp),
+   case prim_inet:getopts(ListenSocket, [active, nodelay, keepalive, delay_send, priority, tos]) of
+      {ok, Opts} ->
+         case prim_inet:setopts(ClientSocket, Opts) of
+            ok -> ok;
+            Error ->
+               gen_tcp:close(ClientSocket),
+               error_logger:error_msg("Unable to set socket [~p] options ~p. Error = [~p].", [ClientSocket, Opts, Error])
+         end;
+      Error ->
+         error_logger:error_msg("Unable to get socket [~p] options. Error = [~p].", [ListenSocket, Error]),
+         gen_tcp:close(ClientSocket)
+   end,
+   SAPid = session_acceptor:start_link(State#state.acceptors, 1000),
    gen_tcp:controlling_process(ClientSocket, SAPid),
+   session_acceptor:set_socket(SAPid, ClientSocket),
    case prim_inet:async_accept(ListenSocket, -1) of
       {ok, NewRef} -> ok;
       {error, NewRef} -> exit({async_accept, inet:format_error(NewRef)})
