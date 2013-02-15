@@ -7,7 +7,7 @@
 -compile([export_all]).
 
 test1_test() ->
-   {ok, P} = fix_parser:create("../deps/fix_parser/fix_descr/fix.4.4.xml", [], []),
+   {ok, P} = fix_parser:create("../../../deps/fix_parser/fix_descr/fix.4.4.xml", [], []),
    {ok, M} = fix_parser:create_msg(P, "8"),
    ?assertEqual("FIX.4.4", fix_parser:get_version(P)),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_SenderCompID, "QWERTY_12345678")),
@@ -58,10 +58,15 @@ test1_test() ->
    ?assertEqual({ok, 0.0}, fix_parser:get_double_field(M1, ?FIXFieldTag_CumQty)),
    ?assertEqual({ok, 0.0}, fix_parser:get_double_field(M1, ?FIXFieldTag_AvgPx)),
    ?assertEqual({ok, $1}, fix_parser:get_char_field(M1, ?FIXFieldTag_HandlInst)),
-   ?assertEqual({ok, "COMMENT12"}, fix_parser:get_string_field(M1, ?FIXFieldTag_Text)).
+   ?assertEqual({ok, "COMMENT12"}, fix_parser:get_string_field(M1, ?FIXFieldTag_Text)),
+   ?assertEqual({ok, "DEFAULT"}, fix_parser:get_string_field(M1, ?FIXFieldTag_SymbolSfx, "DEFAULT")),
+   ?assertEqual({ok, 12345}, fix_parser:get_int32_field(M1, ?FIXFieldTag_NoOrders, 12345)),
+   ?assertEqual({ok, 12345}, fix_parser:get_int64_field(M1, ?FIXFieldTag_NoOrders, 12345)),
+   ?assertEqual({ok, 12345.123}, fix_parser:get_double_field(M1, ?FIXFieldTag_NoOrders, 12345.123)),
+   ?assertEqual({ok, $A}, fix_parser:get_char_field(M1, ?FIXFieldTag_NoOrders, $A)).
 
 test2_test() ->
-   {ok, P} = fix_parser:create("../deps/fix_parser/fix_descr/fix.5.0.sp2.xml", [], []),
+   {ok, P} = fix_parser:create("../../../deps/fix_parser/fix_descr/fix.5.0.sp2.xml", [], []),
    {ok, M} = fix_parser:create_msg(P, "AE"),
    ?assertEqual("FIX.5.0.SP2", fix_parser:get_version(P)),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_ApplVerID, "9")),
