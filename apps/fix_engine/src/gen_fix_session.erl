@@ -11,7 +11,7 @@
 -export([start_link/1, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(data, {session_id, socket = undef, parser, seq_num_out = 1, se_num_in = 1, senderCompID, targetCompID, username,
-      password, state = 'DISCONNECTED'}).
+      password, state = 'DISCONNECTED', heartbeat_int, timer_ref}).
 
 send_logon(SessionPid, Socket, Logon, Timeout) ->
    gen_server:call(SessionPid, {logon, Socket, Logon}, Timeout).
@@ -69,19 +69,29 @@ handle_call(disconnect, _From, Data = #data{state = 'LOGGED_IN'}) ->
 
 handle_call({logon, Socket, LogonBin}, _From, Data = #data{state = 'CONNECTED'}) ->
    error_logger:info_msg("~p: logon received.", [Data#data.session_id]),
-   case fix_parser:str_to_msg(Data#data.parser, ?FIX_SOH, LogonBin) of
-      {ok, Msg, <<>>} ->
-         Valid = validate_logon(Msg, Data#data.username, Data#data.password);
-      {error, ErrCore, ErrMsg} ->
-         Valid = false,
-         error_logger:error_msg("Unable to parse logon message. Error = [~p], Message = [~p].", [ErrCore, ErrMsg])
-   end,
-   case Valid of
-      true ->
-         % TODO: process Logon here
-         error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'LOGGED_IN']),
-         {reply, ok, Data#data{socket = Socket, state = 'LOGGED_IN'}};
-      false ->
+   try
+      {ok, Msg, <<>>} = fix_parser:str_to_msg(Data#data.parser, ?FIX_SOH, LogonBin),
+      validate_logon(Msg, Data#data.username, Data#data.password),
+      {ok, HeartBtInt} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_HeartBtInt),
+      {ok, ResetSeqNum} = fix_parser:get_char_field(Msg, ?FIXFieldTag_ResetSeqNumFlag),
+      LogonReply = create_logon(Data#data.parser, HeartBtInt, ResetSeqNum),
+      send_fix_message(Socket, LogonReply, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
+      error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'LOGGED_IN']),
+      TimerRef = erlang:start_timer(HeartBtInt * 1000, self(), heartbeat),
+      {reply, ok, Data#data{socket = Socket, seq_num_out = Data#data.seq_num_out + 1, state = 'LOGGED_IN',
+            heartbeat_int = HeartBtInt * 1000, timer_ref = TimerRef}}
+   catch
+      throw:{badmatch, {error, _, Reason}} ->
+         LogoutMsg = create_logout(Data#data.parser, Reason),
+         send_fix_message(Socket, LogoutMsg, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
+         gen_tcp:close(Socket),
+         {reply, ok, Data};
+      throw:{error, Reason} ->
+         LogoutMsg = create_logout(Data#data.parser, Reason),
+         send_fix_message(Socket, LogoutMsg, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
+         gen_tcp:close(Socket),
+         {reply, ok, Data};
+      _:_ ->
          LogoutMsg = create_logout(Data#data.parser, "Logon failed"),
          send_fix_message(Socket, LogoutMsg, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
          gen_tcp:close(Socket),
@@ -95,6 +105,11 @@ handle_call(Request, _From, Data) ->
 handle_cast(_Request, Data) ->
    {noreply, Data}.
 
+handle_info({timeout, _, heartbeat},  Data) ->
+   {ok, Msg} = fix_parser:create_msg(Data#data.parser, "0"),
+   send_fix_message(Data#data.socket, Msg, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
+   TimerRef = erlang:start_timer(Data#data.heartbeat_int, self(), heartbeat),
+   {reply, ok, Data#data{seq_num_out = Data#data.seq_num_out + 1, timer_ref = TimerRef}};
 handle_info(_Info, Data) ->
    {noreply, Data}.
 
@@ -107,21 +122,23 @@ code_change(_OldVsn, Data, _Extra) ->
 validate_logon(Msg = #msg{type = "A"}, Username, Password) ->
    {ok, Username1} = fix_parser:get_string_field(Msg, ?FIXFieldTag_Username, ""),
    {ok, Password1} = fix_parser:get_string_field(Msg, ?FIXFieldTag_Password, ""),
-   if ((Username =/= Username1) orelse (Password =/= Password1)) -> false;
-      true -> true
+   if ((Username == Username1) orelse (Password == Password1)) -> ok;
+      true ->
+         throw({error, "Wrong Username/Password"})
    end;
 validate_logon(_, _, _) ->
-   false.
+   throw({error, "Not a logon message"}).
 
 create_logout(Parser, Text) ->
-   case fix_parser:create_msg(Parser, "5") of
-      {ok, Msg} ->
-         ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_Text, Text),
-         Msg;
-      {error, ErrCode, ErrText} ->
-         error_logger:error_msg("Unable to create logout message. Error = [~p], Message = [~p].", [ErrCode, ErrText]),
-         error
-   end.
+   {ok, Msg} = fix_parser:create_msg(Parser, "5"),
+   ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_Text, Text),
+   Msg.
+
+create_logon(Parser, HeartBtInt, ResetSeqNum) ->
+   {ok, Msg} = fix_parser:create_msg(Parser, "A"),
+   ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_HeartBtInt, HeartBtInt),
+   ok = fix_parser:set_char_field(Msg, ?FIXFieldTag_ResetSeqNumFlag, ResetSeqNum),
+   Msg.
 
 send_fix_message(_Socket, error, _MsgSeqNum, _SenderCompID, _TargetCompID) ->
    ok;
