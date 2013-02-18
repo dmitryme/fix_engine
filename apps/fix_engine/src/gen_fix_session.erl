@@ -78,6 +78,7 @@ handle_call({logon, Socket, LogonBin}, _From, Data = #data{state = 'CONNECTED'})
       send_fix_message(Socket, LogonReply, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
       error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'LOGGED_IN']),
       TimerRef = erlang:start_timer(HeartBtInt * 1000, self(), heartbeat),
+      inet:setopts(Socket, [{active, once}]),
       {reply, ok, Data#data{socket = Socket, seq_num_out = Data#data.seq_num_out + 1, state = 'LOGGED_IN',
             heartbeat_int = HeartBtInt * 1000, timer_ref = TimerRef}}
    catch
@@ -109,8 +110,15 @@ handle_info({timeout, _, heartbeat},  Data) ->
    {ok, Msg} = fix_parser:create_msg(Data#data.parser, "0"),
    send_fix_message(Data#data.socket, Msg, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
    TimerRef = erlang:start_timer(Data#data.heartbeat_int, self(), heartbeat),
-   {reply, ok, Data#data{seq_num_out = Data#data.seq_num_out + 1, timer_ref = TimerRef}};
-handle_info(_Info, Data) ->
+   {noreply, Data#data{seq_num_out = Data#data.seq_num_out + 1, timer_ref = TimerRef}};
+handle_info({tcp, _, Bin}, Data) ->
+   case erlang:is_port(Data#data.socket) of
+      true -> inet:setopts(Data#data.socket, [{active, once}]);
+      false -> ok
+   end,
+   {noreply, Data};
+handle_info(Info, Data) ->
+   error_logger:error_msg("Unsupported message [~p].", [Info]),
    {noreply, Data}.
 
 terminate(_Reason, _Data) ->
