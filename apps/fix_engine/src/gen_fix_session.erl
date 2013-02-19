@@ -92,7 +92,8 @@ handle_call({logon, Socket, LogonBin}, _From, Data = #data{state = 'CONNECTED'})
          send_fix_message(Socket, LogoutMsg, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
          gen_tcp:close(Socket),
          {reply, ok, Data};
-      _:_ ->
+      _:Err ->
+         error_logger:error_msg("Logon failed: ~p", [Err]),
          LogoutMsg = create_logout(Data#data.parser, "Logon failed"),
          send_fix_message(Socket, LogoutMsg, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
          gen_tcp:close(Socket),
