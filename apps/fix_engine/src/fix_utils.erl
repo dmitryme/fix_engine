@@ -32,5 +32,5 @@ make_session_id(SenderCompID, TargetCompID) ->
 now_utc() ->
    Now = {_, _, MicroSec} = erlang:now(),
    {{YYYY, M, DD},{HH, MM, SS}} = calendar:now_to_universal_time(Now),
-   lists:flatten(io_lib:format("~2.10.0B.~2.10.0B.~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B.~3.10.0B",
+   lists:flatten(io_lib:format("~2.10.0B.~2.10.0B.~4.10.0B-~2.10.0B:~2.10.0B:~2.10.0B.~3.10.0B",
          [DD, M, YYYY, HH, MM, SS, MicroSec div 1000])).
