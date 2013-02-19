@@ -73,7 +73,7 @@ handle_call({logon, Socket, LogonBin}, _From, Data = #data{state = 'CONNECTED'})
       {ok, Msg, <<>>} = fix_parser:str_to_msg(Data#data.parser, ?FIX_SOH, LogonBin),
       validate_logon(Msg, Data#data.username, Data#data.password),
       {ok, HeartBtInt} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_HeartBtInt),
-      {ok, ResetSeqNum} = fix_parser:get_char_field(Msg, ?FIXFieldTag_ResetSeqNumFlag, $Y),
+      {ok, ResetSeqNum} = fix_parser:get_char_field(Msg, ?FIXFieldTag_ResetSeqNumFlag, $N),
       LogonReply = create_logon(Data#data.parser, HeartBtInt, ResetSeqNum),
       send_fix_message(Socket, LogonReply, Data#data.seq_num_out, Data#data.senderCompID, Data#data.targetCompID),
       error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'LOGGED_IN']),
