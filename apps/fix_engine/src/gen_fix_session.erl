@@ -115,8 +115,8 @@ handle_info({tcp, Socket, Bin}, Data = #data{socket = Socket, binary = PrefixBin
    {noreply, NewData};
 
 handle_info({tcp_closed, Socket}, Data = #data{socket = Socket}) ->
-   error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'DISCONNECTED']),
-   {noreply, Data#data{socket = undef, state = 'DISCONNECTED'}};
+   error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'CONNECTED']),
+   {noreply, Data#data{socket = undef, state = 'CONNECTED'}};
 
 handle_info(Info, Data) ->
    error_logger:error_msg("Unsupported message [~p].", [Info]),
