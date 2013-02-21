@@ -6,27 +6,27 @@
 
 -export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {supervisor, socket, inet_async_ref, acceptors, initiators}).
+-record(state, {socket, inet_async_ref}).
 
 start_link(Name, Args) ->
    gen_server:start_link(Name, ?MODULE, Args, []).
 
 -spec init(#fix_engine_config{}) -> {ok, term()}.
-init(#fix_engine_config{sessions = Sessions, listenPort = undefined}) ->
-   {Supervisor, Acceptors, Initiators} = init_common(Sessions),
-   {ok, #state{supervisor = Supervisor, acceptors = Acceptors, initiators = Initiators}};
-init(#fix_engine_config{sessions = Sessions, listenPort = ListenPort}) ->
-   {Supervisor, Acceptors, Initiators} = init_common(Sessions),
+init(Config = #fix_engine_config{listenPort = undefined}) ->
+   init_common(Config),
+   {ok, #state{}};
+init(Config = #fix_engine_config{listenPort = ListenPort}) ->
+   init_common(Config),
    {Socket, InetAsyncRef} = open_socket(ListenPort),
-   {ok, #state{supervisor = Supervisor, socket = Socket, inet_async_ref = InetAsyncRef, acceptors = Acceptors, initiators = Initiators}}.
+   {ok, #state{socket = Socket, inet_async_ref = InetAsyncRef}}.
 
-init_common(Sessions) ->
-   error_logger:info_msg("gen_fix_engine init started"),
-   {ok, Supervisor} = supervisor:start_link(fix_engine_sup, []),
-   Acceptors = ets:new(acceptors, []),
-   Initiators = ets:new(initiators, []),
-   ok = create_sessions(Sessions, Supervisor, 0, Acceptors, Initiators),
-   {Supervisor, Acceptors, Initiators}.
+init_common(Config) ->
+   error_logger:info_msg("gen_fix_engine init started."),
+   {ok, _SupPid} = fix_engine_sup:start_link(),
+   ets:new(fix_acceptors, [named_table]),
+   ets:new(fix_initiators, [named_table]),
+   create_tracer(Config#fix_engine_config.tracerDir),
+   ok = create_sessions(Config#fix_engine_config.sessions, 0).
 
 handle_call(_Request, _From, State) ->
    {reply, ok, State}.
@@ -52,7 +52,7 @@ handle_info({inet_async, ListenSocket, _Ref, {ok, ClientSocket}}, State) ->
          error_logger:error_msg("Unable to get socket [~p] options. Error = [~p].", [ListenSocket, Error]),
          gen_tcp:close(ClientSocket)
    end,
-   SAPid = session_acceptor:start_link(State#state.acceptors, 1000),
+   SAPid = fix_session_acceptor:start_link(1000),
    gen_tcp:controlling_process(ClientSocket, SAPid),
    session_acceptor:set_socket(SAPid, ClientSocket),
    case prim_inet:async_accept(ListenSocket, -1) of
@@ -82,17 +82,17 @@ open_socket(ListenPort) ->
    error_logger:info_msg("Listen port '~p' not opened.", [ListenPort]).
 
 
--spec create_sessions([#fix_session_initiator_config{}|#fix_session_acceptor_config{}], pid(), pos_integer(), term(), term()) -> ok.
-create_sessions([], _Supervisor, 0, _, _) ->
+-spec create_sessions([#fix_session_initiator_config{}|#fix_session_acceptor_config{}], pos_integer()) -> ok.
+create_sessions([], 0) ->
    error_logger:warning_msg("No sessions are configured."),
    ok;
 
-create_sessions([], _Supervisor, _Id, _, _) ->
+create_sessions([], _Id) ->
    ok;
 
-create_sessions([Session = #fix_session_acceptor_config{}|Rest], Supervisor, Id, Acceptors, Initiators) ->
+create_sessions([Session = #fix_session_acceptor_config{}|Rest], Id) ->
    {ok, ChildPid} = supervisor:start_child(
-      Supervisor, {
+      fix_engine_sup, {
          Id,
          {Session#fix_session_acceptor_config.module, start_link, [Session]},
          permanent,
@@ -101,15 +101,15 @@ create_sessions([Session = #fix_session_acceptor_config{}|Rest], Supervisor, Id,
          [Session#fix_session_acceptor_config.module]
       }),
    true = ets:insert(
-      Acceptors, {
+      fix_acceptors, {
          fix_utils:make_session_id(
             Session#fix_session_acceptor_config.senderCompID,
             Session#fix_session_acceptor_config.targetCompID), ChildPid}),
-   create_sessions(Rest, Supervisor, Id + 1, Acceptors, Initiators);
+   create_sessions(Rest, Id + 1);
 
-create_sessions([Session = #fix_session_initiator_config{}|Rest], Supervisor, Id, Acceptors, Initiators) ->
+create_sessions([Session = #fix_session_initiator_config{}|Rest], Id) ->
    {ok, ChildPid} = supervisor:start_child(
-      Supervisor, {
+      fix_engine_sup, {
          Id,
          {Session#fix_session_initiator_config.module, start_link, [Session]},
          permanent,
@@ -118,8 +118,18 @@ create_sessions([Session = #fix_session_initiator_config{}|Rest], Supervisor, Id
          [Session#fix_session_initiator_config.module]
       }),
    true = ets:insert(
-      Initiators, {
+      fix_initiators, {
          fix_utils:make_session_id(
             Session#fix_session_initiator_config.senderCompID,
             Session#fix_session_initiator_config.targetCompID), ChildPid}),
-   create_sessions(Rest, Supervisor, Id + 1, Acceptors, Initiators).
+   create_sessions(Rest, Id + 1).
+
+create_tracer(Dir) ->
+   supervisor:start_child(
+      fix_engine_sup, {
+         tracer,
+         {fix_tracer, start_link, [Dir]},
+         permanent,
+         brutal_kill,
+         worker,
+         [fix_tracer]}).
