@@ -1,24 +1,24 @@
--module(session_acceptor).
+-module(fix_session_acceptor).
 
 -include("fix_parser.hrl").
 
--export([start_link/2, loop/2, set_socket/2]).
+-export([start_link/1, loop/1, set_socket/2]).
 
-start_link(Acceptors, Timeout) ->
-   spawn_link(fun() -> loop(Acceptors, Timeout) end).
+start_link(Timeout) ->
+   spawn_link(fun() -> loop(Timeout) end).
 
 set_socket(Pid, Socket) ->
    Pid ! {set_socket, Socket}.
 
-loop(Acceptors, Timeout) ->
+loop(Timeout) ->
    receive
       {set_socket, Socket} ->
-         loop(Socket, Acceptors, Timeout, <<>>);
+         loop(Socket, Timeout, <<>>);
       UnknownMessage ->
          error_logger:error_msg("Unknown message [~p] received.", [UnknownMessage])
    end.
 
-loop(Socket, Acceptors, Timeout, LogonPart) ->
+loop(Socket, Timeout, LogonPart) ->
    inet:setopts(Socket, [{active, once}]),
    receive
       {tcp_closed, Socket} ->
@@ -32,16 +32,16 @@ loop(Socket, Acceptors, Timeout, LogonPart) ->
             {ok, SenderCompID, TargetCompID} ->
                SessionID = fix_utils:make_session_id(TargetCompID,  SenderCompID),
                error_logger:info_msg("New incoming session [~p] detected.", [SessionID]),
-               case ets:lookup(Acceptors, SessionID) of
+               case ets:lookup(fix_acceptors, SessionID) of
                   [{SessionID, SessionPid}] ->
-                     gen_tcp:controlling_process(Socket, SessionPid),
-                     gen_fix_session:send_logon(SessionPid, Socket, Logon, Timeout);
+                     ok = gen_fix_session:set_socket(SessionPid, Socket),
+                     SessionPid ! {tcp, Socket, Logon};
                   [] ->
                      error_logger:error_msg("No such session [~p] configured.", [SessionID]),
                      gen_tcp:close(Socket)
                end;
             {error, ?FIX_ERROR_BODY_TOO_SHORT, _} ->
-               ?MODULE:loop(Socket, Acceptors, Timeout, Logon);
+               ?MODULE:loop(Socket, Timeout, Logon);
             {error, ErrCode, ErrText} ->
                error_logger:error_msg("Unable to parse logon message. ErrCode = [~p], ErrText = [~p], Logon message = [~p]",
                   [ErrCode, ErrText, Logon]),
