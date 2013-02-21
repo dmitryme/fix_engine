@@ -54,7 +54,7 @@ handle_info({inet_async, ListenSocket, _Ref, {ok, ClientSocket}}, State) ->
    end,
    SAPid = fix_session_acceptor:start_link(1000),
    gen_tcp:controlling_process(ClientSocket, SAPid),
-   session_acceptor:set_socket(SAPid, ClientSocket),
+   fix_session_acceptor:set_socket(SAPid, ClientSocket),
    case prim_inet:async_accept(ListenSocket, -1) of
       {ok, NewRef} -> ok;
       {error, NewRef} -> exit({async_accept, inet:format_error(NewRef)})
