@@ -25,6 +25,5 @@ start_link() ->
 init([]) ->
    {ok, {{one_for_one, 5, 10},
          [
-            ?CHILD(fix_server, worker),
-            ?CHILD(fix_client, worker)
+            ?CHILD(fix_engine, worker)
          ]}}.
