@@ -34,7 +34,7 @@ loop(Socket, Timeout, LogonPart) ->
                error_logger:info_msg("New incoming session [~p] detected.", [SessionID]),
                case ets:lookup(fix_acceptors, SessionID) of
                   [{SessionID, SessionPid}] ->
-                     ok = gen_fix_session:set_socket(SessionPid, Socket),
+                     ok = gen_fix_acceptor:set_socket(SessionPid, Socket),
                      SessionPid ! {tcp, Socket, Logon};
                   [] ->
                      error_logger:error_msg("No such session [~p] configured.", [SessionID]),
