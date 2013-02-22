@@ -1,4 +1,4 @@
--module(gen_fix_session).
+-module(gen_fix_acceptor).
 
 -include("fix_engine_config.hrl").
 -include("fix_parser.hrl").
@@ -26,27 +26,11 @@ disconnect(SessionID) ->
 start_link(Args = #fix_session_acceptor_config{senderCompID = SenderCompID, targetCompID = TargetCompID}) ->
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
    error_logger:info_msg("Starting acceptor session [~p].", [SessionID]),
-   gen_server:start_link({local, SessionID}, ?MODULE, Args, []);
-
-start_link(Args = #fix_session_initiator_config{senderCompID = SenderCompID, targetCompID = TargetCompID}) ->
-   SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
-   error_logger:info_msg("Starting initiator session [~p].", [SessionID]),
    gen_server:start_link({local, SessionID}, ?MODULE, Args, []).
 
 init(#fix_session_acceptor_config{fix_protocol = Protocol, fix_parser_flags = ParserFlags, senderCompID = SenderCompID, targetCompID = TargetCompID,
       username = Username, password = Password, useTracer = UseTracer}) ->
    case fix_parser:create(Protocol, [], ParserFlags) of
-      {ok, ParserRef} -> error_logger:info_msg("Parser [~p] has been created.", [fix_parser:get_version(ParserRef)]);
-      {error, ParserRef} -> exit({fix_parser_error, ParserRef})
-   end,
-   SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
-   print_use_tracer(SessionID, UseTracer),
-   {ok, #data{session_id = SessionID, parser = ParserRef, senderCompID = SenderCompID, targetCompID = TargetCompID,
-         username = Username, password = Password, useTracer = UseTracer}};
-
-init(#fix_session_initiator_config{fix_protocol = Protocol, senderCompID = SenderCompID, targetCompID = TargetCompID,
-      username = Username, password = Password, useTracer = UseTracer}) ->
-   case fix_parser:create(Protocol, [], []) of
       {ok, ParserRef} -> error_logger:info_msg("Parser [~p] has been created.", [fix_parser:get_version(ParserRef)]);
       {error, ParserRef} -> exit({fix_parser_error, ParserRef})
    end,
