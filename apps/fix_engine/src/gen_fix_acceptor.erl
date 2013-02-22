@@ -10,18 +10,20 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
+-export([apply/2, 'DISCONNECTED'/2, 'CONNECTED'/2, 'LOGGED_IN'/2]).
+
 -record(data, {session_id, socket = undef, useTracer = false, parser, seq_num_out = 1, se_num_in = 1, senderCompID, targetCompID, username,
       password, state = 'DISCONNECTED', heartbeat_int, timer_ref = undef, binary = <<>>}).
 
 set_socket(SessionPid, Socket) ->
    gen_tcp:controlling_process(Socket, SessionPid),
-   gen_server:call(SessionPid, {set_socket, Socket}).
+   gen_server:call(SessionPid, {gen_fix_acceptor, {set_socket, Socket}}).
 
 connect(SessionID) ->
-   gen_server:call(SessionID, connect).
+   gen_server:call(SessionID, {gen_fix_acceptor, connect}).
 
 disconnect(SessionID) ->
-   gen_server:call(SessionID, disconnect).
+   gen_server:call(SessionID, {gen_fix_acceptor, disconnect}).
 
 start_link(Args = #fix_session_acceptor_config{senderCompID = SenderCompID, targetCompID = TargetCompID}) ->
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
@@ -39,71 +41,42 @@ init(#fix_session_acceptor_config{fix_protocol = Protocol, fix_parser_flags = Pa
    {ok, #data{session_id = SessionID, parser = ParserRef, senderCompID = SenderCompID, targetCompID = TargetCompID,
          username = Username, password = Password, useTracer = UseTracer}}.
 
-handle_call(connect, _From, Data = #data{state = 'DISCONNECTED'}) ->
-   error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'CONNECTED']),
-   {reply, ok, Data#data{state = 'CONNECTED'}};
-
-handle_call(disconnect, _From, Data = #data{state = 'CONNECTED'}) ->
-   error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'DISCONNECTED']),
-   {reply, ok, Data#data{state = 'DISCONNECTED'}};
-
-handle_call(disconnect, _From, Data = #data{state = 'LOGGED_IN'}) ->
-   Msg = create_logout(Data#data.parser, "Explicitly disconnected"),
-   send_fix_message(Msg, Data),
-   error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'DISCONNECTED']),
-   gen_tcp:close(Data#data.socket),
-   {reply, ok, Data#data{socket = undef, seq_num_out = Data#data.seq_num_out + 1, state = 'DISCONNECTED'}};
-
-handle_call({set_socket, Socket}, _From, Data = #data{state = 'CONNECTED'}) ->
-   {reply, ok, Data#data{socket = Socket}};
-
-handle_call(Request, _From, Data) ->
-   error_logger:error_msg("Unsupported message [~p].", [Request]),
+handle_call({gen_fix_acceptor, Msg}, _From, Data) ->
+   {ok, NewData} = ?MODULE:apply(Data, Msg),
+   {reply, ok, NewData};
+handle_call(_Msg, _From, Data) ->
+   % TODO: will call derived module
    {reply, ok, Data}.
 
 handle_cast(_Request, Data) ->
+   % TODO: will call derived module
    {noreply, Data}.
 
-handle_info({timeout, _, heartbeat},  Data = #data{state = S}) when S =/= 'LOGGED_IN' ->
-   {noreply, Data#data{timer_ref = undef}};
-
-handle_info({timeout, _, heartbeat},  Data) ->
-   {ok, Msg} = fix_parser:create_msg(Data#data.parser, "0"),
-   send_fix_message(Msg, Data),
-   TimerRef = erlang:start_timer(Data#data.heartbeat_int, self(), heartbeat),
-   {noreply, Data#data{seq_num_out = Data#data.seq_num_out + 1, timer_ref = TimerRef}};
-
-handle_info({tcp, _, <<>>}, Data) ->
+handle_info({tcp, Socket, <<>>}, Data = #data{socket = Socket}) ->
    {noreply, Data};
-
-handle_info({tcp, Socket, Bin}, Data = #data{socket = Socket, binary = PrefixBin, state = State})
-      when State == 'CONNECTED' orelse State == 'LOGGED_IN' ->
+handle_info({tcp, Socket, Bin}, Data = #data{socket = Socket, binary = PrefixBin}) ->
    case fix_parser:str_to_msg(Data#data.parser, ?FIX_SOH, <<PrefixBin/binary, Bin/binary>>) of
       {ok, Msg, RestBin} ->
          trace(Msg, in, Data),
          Data1 = Data#data{binary = <<>>},
-         Data2 = handle_msg(Msg, Data1),
+         {ok, Data2} = ?MODULE:apply(Data1, Msg),
          {noreply, NewData} = handle_info({tcp, Socket, RestBin}, Data2);
       {error, ?FIX_ERROR_BODY_TOO_SHORT, _} ->
          NewData = Data#data{binary = <<PrefixBin/binary, Bin/binary>>};
       {error, ErrCode, ErrText} ->
          error_logger:error_msg("Unable to parse incoming message. Error = [~p], Description = [~p].", [ErrCode,
                ErrText]),
-         error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'DISCONNECTED']),
-         gen_tcp:close(Data#data.socket),
-         NewData = Data#data{socket = undef, state = 'DISCONNECTED'}
+         {ok, NewData} = ?MODULE:apply(Data, {parse_error, ErrCode, ErrText})
    end,
    if erlang:is_port(NewData#data.socket) -> inet:setopts(Socket, [{active, once}]);
       true -> ok
    end,
    {noreply, NewData};
-
 handle_info({tcp_closed, Socket}, Data = #data{socket = Socket}) ->
-   error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'CONNECTED']),
-   {noreply, Data#data{socket = undef, state = 'CONNECTED'}};
-
-handle_info(Info, Data) ->
-   error_logger:error_msg("Unsupported message [~p].", [Info]),
+   {ok, NewData} = ?MODULE:apply(Data, tcp_closed),
+   {noreply, NewData};
+handle_info(_Info, Data) ->
+   % TODO: will call derived module
    {noreply, Data}.
 
 terminate(_Reason, _Data) ->
@@ -112,7 +85,20 @@ terminate(_Reason, _Data) ->
 code_change(_OldVsn, Data, _Extra) ->
    {ok, Data}.
 
-handle_msg(Msg = #msg{type = "A"}, Data = #data{socket = Socket, state = 'CONNECTED'}) ->
+% =====================================================================================================
+% =========================== Acceptor FSM begin ======================================================
+% =====================================================================================================
+
+'DISCONNECTED'(connect, Data) ->
+   {ok, Data#data{state = 'CONNECTED'}}.
+
+'CONNECTED'({set_socket, Socket}, Data) ->
+   {ok, Data#data{socket = Socket}};
+
+'CONNECTED'(disconnect, Data) ->
+   {ok, Data#data{state = 'DISCONNECTED'}};
+
+'CONNECTED'(Msg = #msg{type = "A"}, Data = #data{socket = Socket, state = 'CONNECTED'}) ->
    error_logger:info_msg("~p: logon received.", [Data#data.session_id]),
    try
       validate_logon(Msg, Data#data.username, Data#data.password),
@@ -122,40 +108,73 @@ handle_msg(Msg = #msg{type = "A"}, Data = #data{socket = Socket, state = 'CONNEC
       NewData = Data#data{socket = Socket, seq_num_out = SeqNumOut, heartbeat_int = HeartBtInt * 1000},
       LogonReply = create_logon(Data#data.parser, HeartBtInt, ResetSeqNum),
       send_fix_message(LogonReply, NewData),
-      error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'LOGGED_IN']),
-      TimerRef = restart_heartbeat(NewData),
       inet:setopts(Socket, [{active, once}]),
-      NewData#data{state = 'LOGGED_IN', seq_num_out = SeqNumOut + 1, timer_ref = TimerRef}
+      {ok, NewData#data{state = 'LOGGED_IN', seq_num_out = SeqNumOut + 1, timer_ref = restart_heartbeat(NewData)}}
    catch
       throw:{badmatch, {error, _, Reason}} ->
          LogoutMsg = create_logout(Data#data.parser, Reason),
          send_fix_message(LogoutMsg, Data),
          gen_tcp:close(Socket),
-         Data;
+         {ok, Data#data{state = 'CONNECTED'}};
       throw:{error, Reason} ->
          LogoutMsg = create_logout(Data#data.parser, Reason),
          send_fix_message(LogoutMsg, Data),
          gen_tcp:close(Socket),
-         Data;
+         {ok, Data#data{state = 'CONNECTED'}};
       _:Err ->
          error_logger:error_msg("Logon failed: ~p", [Err]),
          LogoutMsg = create_logout(Data#data.parser, "Logon failed"),
          send_fix_message(LogoutMsg, Data),
          gen_tcp:close(Socket),
-         Data
-   end;
-handle_msg(#msg{type = "5"}, Data = #data{state = 'LOGGED_IN'}) ->
+         {ok, Data#data{state = 'CONNECTED'}}
+   end.
+
+'LOGGED_IN'({timeout, _, heartbeat}, Data) ->
+   {ok, Msg} = fix_parser:create_msg(Data#data.parser, "0"),
+   send_fix_message(Msg, Data),
+   TimerRef = erlang:start_timer(Data#data.heartbeat_int, self(), heartbeat),
+   {ok, Data#data{seq_num_out = Data#data.seq_num_out + 1, timer_ref = TimerRef}};
+
+'LOGGED_IN'(disconnect, Data) ->
+   Msg = create_logout(Data#data.parser, "Explicitly disconnected"),
+   send_fix_message(Msg, Data),
+   gen_tcp:close(Data#data.socket),
+   {ok, Data#data{socket = undef, seq_num_out = Data#data.seq_num_out + 1, state = 'CONNECTED'}};
+
+'LOGGED_IN'(tcp_closed, Data) ->
+   {ok, Data#data{socket = undef, state = 'CONNECTED'}};
+
+'LOGGED_IN'(#msg{type = "0"}, Data) ->
+   {ok, Data};
+
+'LOGGED_IN'(#msg{type = "5"}, Data) ->
    Logout = create_logout(Data#data.parser, "Bye"),
    send_fix_message(Logout, Data),
-   Data#data{seq_num_out = Data#data.seq_num_out + 1, timer_ref = undef};
-handle_msg(TestRequestMsg = #msg{type = "1"}, Data = #data{seq_num_out = SeqNumOut, state = 'LOGGED_IN'}) ->
+   {ok, Data#data{seq_num_out = Data#data.seq_num_out + 1, timer_ref = undef}};
+
+'LOGGED_IN'(TestRequestMsg = #msg{type = "1"}, Data = #data{seq_num_out = SeqNumOut}) ->
    {ok, TestReqID} = fix_parser:get_string_field(TestRequestMsg, ?FIXFieldTag_TestReqID),
    {ok, HeartbeatMsg} = fix_parser:create_msg(Data#data.parser, "0"),
    ok = fix_parser:set_string_field(HeartbeatMsg, ?FIXFieldTag_TestReqID, TestReqID),
    send_fix_message(HeartbeatMsg, Data),
-   Data#data{seq_num_out = SeqNumOut + 1, timer_ref = restart_heartbeat(Data)};
-handle_msg(_Msg, Data) ->
-   Data.
+   {ok, Data#data{seq_num_out = SeqNumOut + 1, timer_ref = restart_heartbeat(Data)}}.
+
+% =====================================================================================================
+% =========================== Acceptor FSM end ========================================================
+% =====================================================================================================
+
+apply(Data = #data{session_id = SessionID, state = OldState}, Msg) ->
+   case (catch erlang:apply(?MODULE, OldState, [Msg])) of
+      {ok, NewData = #data{state = NewState}} ->
+         if NewState =/= OldState -> error_logger:info_msg("[~p] state changed [~p]->[~p].", [SessionID, OldState, NewState]); true -> ok end,
+         {ok, NewData};
+      {'EXIT', {function_clause, [_]}} ->
+         error_logger:warning_msg("Unsupported session [~p] state [~p] message [~p].", [SessionID, OldState, Msg]),
+         {ok, Data};
+      Other ->
+         error_logger:error_msg("Wrong call [~p]", [Other]),
+         exit({error_wrong_result, Other})
+   end.
 
 restart_heartbeat(#data{timer_ref = undef, heartbeat_int = Timeout}) ->
    erlang:start_timer(Timeout, self(), heartbeat);
