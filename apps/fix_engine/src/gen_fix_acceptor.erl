@@ -164,9 +164,12 @@ code_change(_OldVsn, Data, _Extra) ->
 % =====================================================================================================
 
 apply(Data = #data{session_id = SessionID, state = OldState}, Msg) ->
-   case (catch erlang:apply(?MODULE, OldState, [Msg])) of
+   case (catch erlang:apply(?MODULE, OldState, [Msg, Data])) of
       {ok, NewData = #data{state = NewState}} ->
-         if NewState =/= OldState -> error_logger:info_msg("[~p] state changed [~p]->[~p].", [SessionID, OldState, NewState]); true -> ok end,
+         if NewState =/= OldState ->
+               error_logger:info_msg("Session [~p] state changed [~p]->[~p].", [SessionID, OldState, NewState]);
+            true -> ok
+         end,
          {ok, NewData};
       {'EXIT', {function_clause, [_]}} ->
          error_logger:warning_msg("Unsupported session [~p] state [~p] message [~p].", [SessionID, OldState, Msg]),
