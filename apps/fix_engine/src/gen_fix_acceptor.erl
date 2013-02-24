@@ -12,7 +12,7 @@
 
 -export([apply/2, 'DISCONNECTED'/2, 'CONNECTED'/2, 'LOGGED_IN'/2]).
 
--record(data, {session_id, socket = undef, useTracer = false, parser, seq_num_out = 1, se_num_in = 1, senderCompID, targetCompID, username,
+-record(data, {session_id, socket = undef, use_tracer = false, parser, seq_num_out = 1, se_num_in = 1, sender_comp_id, target_comp_id, username,
       password, state = 'DISCONNECTED', heartbeat_int, timer_ref = undef, binary = <<>>}).
 
 set_socket(SessionPid, Socket) ->
@@ -25,21 +25,21 @@ connect(SessionID) ->
 disconnect(SessionID) ->
    gen_server:call(SessionID, {gen_fix_acceptor, disconnect}).
 
-start_link(Args = #fix_session_acceptor_config{senderCompID = SenderCompID, targetCompID = TargetCompID}) ->
+start_link(Args = #fix_session_acceptor_config{sender_comp_id = SenderCompID, target_comp_id = TargetCompID}) ->
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
    error_logger:info_msg("Starting acceptor session [~p].", [SessionID]),
    gen_server:start_link({local, SessionID}, ?MODULE, Args, []).
 
-init(#fix_session_acceptor_config{fix_protocol = Protocol, fix_parser_flags = ParserFlags, senderCompID = SenderCompID, targetCompID = TargetCompID,
-      username = Username, password = Password, useTracer = UseTracer}) ->
+init(#fix_session_acceptor_config{fix_protocol = Protocol, fix_parser_flags = ParserFlags, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
+      username = Username, password = Password, use_tracer = UseTracer}) ->
    case fix_parser:create(Protocol, [], ParserFlags) of
       {ok, ParserRef} -> error_logger:info_msg("Parser [~p] has been created.", [fix_parser:get_version(ParserRef)]);
       {error, ParserRef} -> exit({fix_parser_error, ParserRef})
    end,
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
    print_use_tracer(SessionID, UseTracer),
-   {ok, #data{session_id = SessionID, parser = ParserRef, senderCompID = SenderCompID, targetCompID = TargetCompID,
-         username = Username, password = Password, useTracer = UseTracer}}.
+   {ok, #data{session_id = SessionID, parser = ParserRef, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
+         username = Username, password = Password, use_tracer = UseTracer}}.
 
 handle_call({gen_fix_acceptor, Msg}, _From, Data) ->
    {ok, NewData} = ?MODULE:apply(Data, Msg),
@@ -208,15 +208,15 @@ create_logon(Parser, HeartBtInt, ResetSeqNum) ->
    Msg.
 
 send_fix_message(Msg, Data) ->
-   ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SenderCompID, Data#data.senderCompID),
-   ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TargetCompID, Data#data.targetCompID),
+   ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SenderCompID, Data#data.sender_comp_id),
+   ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TargetCompID, Data#data.target_comp_id),
    ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, Data#data.seq_num_out),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SendingTime, fix_utils:now_utc()),
    {ok, BinMsg} = fix_parser:msg_to_str(Msg, ?FIX_SOH),
    ok = gen_tcp:send(Data#data.socket, BinMsg),
    trace(Msg, out, Data).
 
-trace(Msg, Direction, #data{session_id = SID, useTracer = true}) ->
+trace(Msg, Direction, #data{session_id = SID, use_tracer = true}) ->
    fix_tracer:trace(SID, Direction, Msg);
 trace(_, _, _) -> ok.
 

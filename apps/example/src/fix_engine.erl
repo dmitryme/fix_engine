@@ -6,17 +6,17 @@
 
 configuration() ->
    #fix_engine_config{
-      listenPort = 60000,
-      tracerDir = "./trace",
+      listen_port = 60000,
+      tracer_dir = "./trace",
       sessions = [
          #fix_session_acceptor_config{
             module = gen_fix_acceptor,
-            senderCompID = "server",
-            targetCompID = "client",
+            sender_comp_id = "server",
+            target_comp_id = "client",
             username = "",
             password = "",
             fix_protocol = "../deps/fix_parser/fix_descr/fix.4.4.xml",
-            useTracer = true
+            use_tracer = true
          }]
    }.
 

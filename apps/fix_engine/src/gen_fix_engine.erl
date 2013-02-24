@@ -12,10 +12,10 @@ start_link(Name, Args) ->
    gen_server:start_link(Name, ?MODULE, Args, []).
 
 -spec init(#fix_engine_config{}) -> {ok, term()}.
-init(Config = #fix_engine_config{listenPort = undefined}) ->
+init(Config = #fix_engine_config{listen_port = undefined}) ->
    init_common(Config),
    {ok, #state{}};
-init(Config = #fix_engine_config{listenPort = ListenPort}) ->
+init(Config = #fix_engine_config{listen_port = ListenPort}) ->
    init_common(Config),
    {Socket, InetAsyncRef} = open_socket(ListenPort),
    {ok, #state{socket = Socket, inet_async_ref = InetAsyncRef}}.
@@ -25,7 +25,8 @@ init_common(Config) ->
    {ok, _SupPid} = fix_engine_sup:start_link(),
    ets:new(fix_acceptors, [named_table]),
    ets:new(fix_initiators, [named_table]),
-   create_tracer(Config#fix_engine_config.tracerDir),
+   create_tracer(Config#fix_engine_config.tracer_dir),
+   create_storage(),
    ok = create_sessions(Config#fix_engine_config.sessions, 0).
 
 handle_call(_Request, _From, State) ->
@@ -103,8 +104,8 @@ create_sessions([Session = #fix_session_acceptor_config{}|Rest], Id) ->
    true = ets:insert(
       fix_acceptors, {
          fix_utils:make_session_id(
-            Session#fix_session_acceptor_config.senderCompID,
-            Session#fix_session_acceptor_config.targetCompID), ChildPid}),
+            Session#fix_session_acceptor_config.sender_comp_id,
+            Session#fix_session_acceptor_config.target_comp_id), ChildPid}),
    create_sessions(Rest, Id + 1);
 
 create_sessions([Session = #fix_session_initiator_config{}|Rest], Id) ->
@@ -120,16 +121,25 @@ create_sessions([Session = #fix_session_initiator_config{}|Rest], Id) ->
    true = ets:insert(
       fix_initiators, {
          fix_utils:make_session_id(
-            Session#fix_session_initiator_config.senderCompID,
-            Session#fix_session_initiator_config.targetCompID), ChildPid}),
+            Session#fix_session_initiator_config.sender_comp_id,
+            Session#fix_session_initiator_config.target_comp_id), ChildPid}),
    create_sessions(Rest, Id + 1).
 
 create_tracer(Dir) ->
    supervisor:start_child(
       fix_engine_sup, {
-         tracer,
+         fix_tracer,
          {fix_tracer, start_link, [Dir]},
          permanent,
          brutal_kill,
          worker,
          [fix_tracer]}).
+create_storage() ->
+   {ok, _Pid} = supervisor:start_child(
+      fix_engine_sup, {
+         fix_storage,
+         {fix_storage, start_link, [[]]},
+         permanent,
+         brutal_kill,
+         worker,
+         [fix_storage]}).

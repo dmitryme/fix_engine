@@ -55,6 +55,4 @@ code_change(_OldVsn, State, _Extra) ->
 print_direction(in) ->
    <<"->">>;
 print_direction(out) ->
-   <<"<-">>;
-print_direction(_Direction) ->
-   <<"UNK">>.
+   <<"<-">>.
