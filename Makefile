@@ -15,7 +15,7 @@ distclean: clean
 	./rebar delete-deps
 
 test: all
-	ERL_LIBS=apps ./rebar skip_deps=true eunit
+	ERL_LIBS=apps ./rebar skip_deps=true eunit ct
 
 docs:
 	./rebar skip_deps=true doc
