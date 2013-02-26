@@ -21,6 +21,7 @@ static ERL_NIF_TERM error_atom;
 static ERL_NIF_TERM parser_atom;
 static ERL_NIF_TERM msg_atom;
 static ERL_NIF_TERM group_atom;
+static ERL_NIF_TERM msg_header;
 static ErlNifResourceType* parser_res;
 static ErlNifResourceType* message_res;
 static ErlNifResourceType* group_res;
@@ -69,10 +70,11 @@ static int32_t load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
    group_res = enif_open_resource_type( env, NULL, "erlang_fix_group_res",
       NULL, ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER, NULL);
    ok_atom = enif_make_atom(env, "ok");
-   error_atom = enif_make_atom(env, "error");
+   error_atom = enif_make_atom(env, "fix_error");
    parser_atom = enif_make_atom(env, "parser");
    msg_atom = enif_make_atom(env, "msg");
    group_atom = enif_make_atom(env, "group");
+   msg_header = enif_make_atom(env, "msg_header");
    return 0;
 }
 
@@ -796,7 +798,7 @@ static ERL_NIF_TERM get_data_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM co
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM get_session_id(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM get_header(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    int32_t delimiter = 0;
    ErlNifBinary bin;
@@ -808,25 +810,35 @@ static ERL_NIF_TERM get_session_id(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM co
    {
       return make_error(env, FIX_FAILED, "Wrong binary.");
    }
+   char const* beginString = NULL;
+   uint32_t beginStringLen = 0;
+   char const* msgType = NULL;
+   uint32_t msgTypeLen = 0;
    char const* senderCompID = NULL;
    uint32_t senderCompIDLen = 0;
    char const* targetCompID = NULL;
    uint32_t targetCompIDLen = 0;
+   int64_t msgSeqNum = 0;
    FIXError* error = NULL;
-   if (FIX_FAILED == fix_parser_get_session_id((char const*)bin.data, bin.size, delimiter,
-         &senderCompID, &senderCompIDLen, &targetCompID, &targetCompIDLen, &error))
+   if (FIX_FAILED == fix_parser_get_header((char const*)bin.data, bin.size, delimiter,
+         &beginString, &beginStringLen, &msgType, &msgTypeLen, &senderCompID, &senderCompIDLen,
+         &targetCompID, &targetCompIDLen, &msgSeqNum, &error))
    {
       ERL_NIF_TERM err = make_error(env, fix_error_get_code(error), fix_error_get_text(error));
       free(error);
       return err;
    }
-   return enif_make_tuple3(env, ok_atom,
-         enif_make_string_len(env, senderCompID, senderCompIDLen, ERL_NIF_LATIN1),
-         enif_make_string_len(env, targetCompID, targetCompIDLen, ERL_NIF_LATIN1));
+   return enif_make_tuple2(env, ok_atom,
+            enif_make_tuple6(env, msg_header,
+               enif_make_string_len(env, beginString, beginStringLen, ERL_NIF_LATIN1),
+               enif_make_string_len(env, msgType, msgTypeLen, ERL_NIF_LATIN1),
+               enif_make_string_len(env, senderCompID, senderCompIDLen, ERL_NIF_LATIN1),
+               enif_make_string_len(env, targetCompID, targetCompIDLen, ERL_NIF_LATIN1),
+               enif_make_int64(env, msgSeqNum)));
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM msg_to_str(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM msg_to_binary(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    ERL_NIF_TERM parser_res;
    ERL_NIF_TERM msg_res;
@@ -883,7 +895,7 @@ static ERL_NIF_TERM msg_to_str(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const 
 }
 
 /*-----------------------------------------------------------------------------------------------------------------------*/
-static ERL_NIF_TERM str_to_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
+static ERL_NIF_TERM binary_to_msg(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM const argv[])
 {
    ERL_NIF_TERM parser_res;
    ParserRes* parser = NULL;
@@ -945,9 +957,9 @@ static ErlNifFunc nif_funcs[] =
    {"get_string_field",  2, get_string_field },
    {"get_char_field",    2, get_char_field   },
    {"get_data_field",    2, get_data_field   },
-   {"get_session_id",    2, get_session_id   },
-   {"msg_to_str",        2, msg_to_str       },
-   {"str_to_msg",        3, str_to_msg       }
+   {"get_header",        2, get_header       },
+   {"msg_to_binary",     2, msg_to_binary    },
+   {"binary_to_msg",     3, binary_to_msg    }
 };
 
 ERL_NIF_INIT(fix_parser, nif_funcs, load, NULL, NULL, NULL)
