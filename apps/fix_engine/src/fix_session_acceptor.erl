@@ -29,7 +29,7 @@ loop(Socket, Timeout, LogonPart) ->
       {tcp, Socket, Data} ->
          Logon = <<LogonPart/binary, Data/binary>>,
          case fix_parser:get_header(Logon, ?FIX_SOH) of
-            {ok, #msg_header{sender_comp_id = SenderCompID, target_comp_id = TargetCompID} ->
+            {ok, #msg_header{sender_comp_id = SenderCompID, target_comp_id = TargetCompID}} ->
                SessionID = fix_utils:make_session_id(TargetCompID,  SenderCompID),
                error_logger:info_msg("New incoming session [~p] detected.", [SessionID]),
                case ets:lookup(fix_acceptors, SessionID) of
