@@ -16,7 +16,7 @@
       password, state = 'DISCONNECTED', heartbeat_int, timer_ref = undef, binary = <<>>}).
 
 set_socket(SessionPid, Socket) ->
-   gen_tcp:controlling_process(Socket, SessionPid),
+   socket_controlling_process(Socket, SessionPid),
    gen_server:call(SessionPid, {gen_fix_acceptor, {set_socket, Socket}}).
 
 connect(SessionID) ->
@@ -34,15 +34,20 @@ init(#fix_session_acceptor_config{fix_protocol = Protocol, fix_parser_flags = Pa
       username = Username, password = Password, use_tracer = UseTracer}) ->
    case fix_parser:create(Protocol, [], ParserFlags) of
       {ok, ParserRef} -> error_logger:info_msg("Parser [~p] has been created.", [fix_parser:get_version(ParserRef)]);
-      {error, ParserRef} -> exit({fix_parser_error, ParserRef})
+      {fix_error, ParserRef} -> exit({fix_parser_error, ParserRef})
    end,
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
    print_use_tracer(SessionID, UseTracer),
    {ok, #data{session_id = SessionID, parser = ParserRef, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
          username = Username, password = Password, use_tracer = UseTracer}}.
 
-handle_call({gen_fix_acceptor, Msg}, _From, Data) ->
-   {ok, NewData} = ?MODULE:apply(Data, Msg),
+handle_call({gen_fix_acceptor, {set_socket, Socket}}, _From, Data) ->
+   {reply, ok, Data#data{socket = Socket}};
+handle_call({gen_fix_acceptor, connect}, _From, Data) ->
+   {ok, NewData} = ?MODULE:apply(Data, connect),
+   {reply, ok, NewData};
+handle_call({gen_fix_acceptor, disconnect}, _From, Data) ->
+   {ok, NewData} = ?MODULE:apply(Data, disconnect),
    {reply, ok, NewData};
 handle_call(_Msg, _From, Data) ->
    % TODO: will call derived module
@@ -52,22 +57,8 @@ handle_cast(_Request, Data) ->
    % TODO: will call derived module
    {noreply, Data}.
 
-handle_info({tcp, Socket, <<>>}, Data = #data{socket = Socket}) ->
-   {noreply, Data};
-handle_info({tcp, Socket, Bin}, Data = #data{socket = Socket, binary = PrefixBin}) ->
-   case fix_parser:str_to_msg(Data#data.parser, ?FIX_SOH, <<PrefixBin/binary, Bin/binary>>) of
-      {ok, Msg, RestBin} ->
-         trace(Msg, in, Data),
-         Data1 = Data#data{binary = <<>>},
-         {ok, Data2} = ?MODULE:apply(Data1, Msg),
-         {noreply, NewData} = handle_info({tcp, Socket, RestBin}, Data2);
-      {error, ?FIX_ERROR_BODY_TOO_SHORT, _} ->
-         NewData = Data#data{binary = <<PrefixBin/binary, Bin/binary>>};
-      {error, ErrCode, ErrText} ->
-         error_logger:error_msg("Unable to parse incoming message. Error = [~p], Description = [~p].", [ErrCode,
-               ErrText]),
-         {ok, NewData} = ?MODULE:apply(Data, {parse_error, ErrCode, ErrText})
-   end,
+handle_info({tcp, Socket, Bin}, Data = #data{socket = Socket}) ->
+   {ok, NewData} = parse_binary(Bin, Data),
    if erlang:is_port(NewData#data.socket) -> inet:setopts(Socket, [{active, once}]);
       true -> ok
    end,
@@ -75,9 +66,9 @@ handle_info({tcp, Socket, Bin}, Data = #data{socket = Socket, binary = PrefixBin
 handle_info({tcp_closed, Socket}, Data = #data{socket = Socket}) ->
    {ok, NewData} = ?MODULE:apply(Data, tcp_closed),
    {noreply, NewData};
-handle_info(_Info, Data) ->
-   % TODO: will call derived module
-   {noreply, Data}.
+handle_info({timeout, _, heartbeat}, Data) ->
+   {ok, NewData} = ?MODULE:apply(Data, timeout),
+   {noreply, NewData}.
 
 terminate(_Reason, _Data) ->
    ok.
@@ -90,13 +81,31 @@ code_change(_OldVsn, Data, _Extra) ->
 % =====================================================================================================
 
 'DISCONNECTED'(connect, Data) ->
-   {ok, Data#data{state = 'CONNECTED'}}.
+   {ok, Data#data{state = 'CONNECTED'}};
 
-'CONNECTED'({set_socket, Socket}, Data) ->
-   {ok, Data#data{socket = Socket}};
+'DISCONNECTED'(#msg{type = "A"}, Data) ->
+   error_logger:error_msg("Session [~p] not connected. Do connect first.", [Data#data.session_id]),
+   socket_close(Data#data.socket),
+   {ok, Data#data{socket = undef}};
+
+'DISCONNECTED'({fix_error, _ErrCode, _ErrText}, Data) ->
+   error_logger:error_msg("Session [~p] not connected. Do connect first.", [Data#data.session_id]),
+   socket_close(Data#data.socket),
+   {ok, Data#data{socket = undef}};
+
+'DISCONNECTED'(timeout, Data) ->
+   {ok, Data#data{timer_ref = undef}}.
+
+'CONNECTED'(timeout, Data) ->
+   {ok, Data#data{timer_ref = undef}};
 
 'CONNECTED'(disconnect, Data) ->
    {ok, Data#data{state = 'DISCONNECTED'}};
+
+'CONNECTED'({fix_error, ErrCode, ErrText}, Data) ->
+   error_logger:error_msg("Unable to parse message. ErrCode = [~p], ErrText = [~p].", [ErrCode, ErrText]),
+   socket_close(Data#data.socket),
+   {ok, Data#data{socket = undef}};
 
 'CONNECTED'(Msg = #msg{type = "A"}, Data = #data{socket = Socket, state = 'CONNECTED'}) ->
    error_logger:info_msg("~p: logon received.", [Data#data.session_id]),
@@ -108,28 +117,27 @@ code_change(_OldVsn, Data, _Extra) ->
       NewData = Data#data{socket = Socket, seq_num_out = SeqNumOut, heartbeat_int = HeartBtInt * 1000},
       LogonReply = create_logon(Data#data.parser, HeartBtInt, ResetSeqNum),
       send_fix_message(LogonReply, NewData),
-      inet:setopts(Socket, [{active, once}]),
       {ok, NewData#data{state = 'LOGGED_IN', seq_num_out = SeqNumOut + 1, timer_ref = restart_heartbeat(NewData)}}
    catch
-      throw:{badmatch, {error, _, Reason}} ->
+      throw:{badmatch, {fix_error, _, Reason}} ->
          LogoutMsg = create_logout(Data#data.parser, Reason),
          send_fix_message(LogoutMsg, Data),
-         gen_tcp:close(Socket),
+         socket_close(Socket),
          {ok, Data#data{state = 'CONNECTED'}};
       throw:{error, Reason} ->
          LogoutMsg = create_logout(Data#data.parser, Reason),
          send_fix_message(LogoutMsg, Data),
-         gen_tcp:close(Socket),
+         socket_close(Socket),
          {ok, Data#data{state = 'CONNECTED'}};
       _:Err ->
          error_logger:error_msg("Logon failed: ~p", [Err]),
          LogoutMsg = create_logout(Data#data.parser, "Logon failed"),
          send_fix_message(LogoutMsg, Data),
-         gen_tcp:close(Socket),
+         socket_close(Socket),
          {ok, Data#data{state = 'CONNECTED'}}
    end.
 
-'LOGGED_IN'({timeout, _, heartbeat}, Data) ->
+'LOGGED_IN'(timeout, Data) ->
    {ok, Msg} = fix_parser:create_msg(Data#data.parser, "0"),
    send_fix_message(Msg, Data),
    TimerRef = erlang:start_timer(Data#data.heartbeat_int, self(), heartbeat),
@@ -138,8 +146,8 @@ code_change(_OldVsn, Data, _Extra) ->
 'LOGGED_IN'(disconnect, Data) ->
    Msg = create_logout(Data#data.parser, "Explicitly disconnected"),
    send_fix_message(Msg, Data),
-   gen_tcp:close(Data#data.socket),
-   {ok, Data#data{socket = undef, seq_num_out = Data#data.seq_num_out + 1, state = 'CONNECTED'}};
+   socket_close(Data#data.socket),
+   {ok, Data#data{socket = undef, seq_num_out = Data#data.seq_num_out + 1, state = 'DISCONNECTED'}};
 
 'LOGGED_IN'(tcp_closed, Data) ->
    {ok, Data#data{socket = undef, state = 'CONNECTED'}};
@@ -179,6 +187,24 @@ apply(Data = #data{session_id = SessionID, state = OldState}, Msg) ->
          exit({error_wrong_result, Other})
    end.
 
+parse_binary(<<>>, Data) ->
+   {ok, Data};
+parse_binary(Bin, Data = #data{binary = PrefixBin}) ->
+   case fix_parser:binary_to_msg(Data#data.parser, ?FIX_SOH, <<PrefixBin/binary, Bin/binary>>) of
+      {ok, Msg, RestBin} ->
+         trace(Msg, in, Data),
+         Data1 = Data#data{binary = <<>>},
+         {ok, Data2} = ?MODULE:apply(Data1, Msg),
+         {ok, NewData} = parse_binary(RestBin, Data2);
+      {fix_error, ?FIX_ERROR_BODY_TOO_SHORT, _} ->
+         NewData = Data#data{binary = <<PrefixBin/binary, Bin/binary>>};
+      {fix_error, ErrCode, ErrText} ->
+         error_logger:error_msg("Unable to parse incoming message. Error = [~p], Description = [~p].", [ErrCode,
+               ErrText]),
+         {ok, NewData} = ?MODULE:apply(Data, {fix_error, ErrCode, ErrText})
+   end,
+   {ok, NewData}.
+
 restart_heartbeat(#data{timer_ref = undef, heartbeat_int = Timeout}) ->
    erlang:start_timer(Timeout, self(), heartbeat);
 restart_heartbeat(#data{timer_ref = OldTimerRef, heartbeat_int = Timeout}) ->
@@ -212,8 +238,8 @@ send_fix_message(Msg, Data) ->
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TargetCompID, Data#data.target_comp_id),
    ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, Data#data.seq_num_out),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SendingTime, fix_utils:now_utc()),
-   {ok, BinMsg} = fix_parser:msg_to_str(Msg, ?FIX_SOH),
-   ok = gen_tcp:send(Data#data.socket, BinMsg),
+   {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
+   ok = socket_send(Data#data.socket, BinMsg),
    trace(Msg, out, Data).
 
 trace(Msg, Direction, #data{session_id = SID, use_tracer = true}) ->
@@ -223,4 +249,19 @@ trace(_, _, _) -> ok.
 print_use_tracer(SessionID, true) ->
    error_logger:info_msg("Session [~p] will use tracer.", [SessionID]);
 print_use_tracer(_SessionID, _) ->
+   ok.
+
+socket_close(Socket) when is_port(Socket) ->
+   gen_tcp:close(Socket);
+socket_close(Socket) ->
+   Socket ! tcp_close.
+
+socket_send(Socket, Msg) when is_port(Socket) ->
+   gen_tcp:send(Socket, Msg);
+socket_send(Socket, Msg) ->
+   Socket ! Msg.
+
+socket_controlling_process(Socket, SessionPid) when is_port(Socket) ->
+   gen_tcp:controlling_process(Socket, SessionPid);
+socket_controlling_process(_Socket, _SessionPid) ->
    ok.
