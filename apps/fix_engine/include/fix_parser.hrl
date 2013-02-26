@@ -18,6 +18,12 @@
 -record(msg,    {type :: binary(),
                  res :: {binary(), binary()}}).
 
+-record(msg_header, {begin_string :: string(),
+                     msg_type :: string(),
+                     sender_comp_id :: string(),
+                     target_comp_id :: string(),
+                     msg_seq_num    :: pos_integer()}).
+
 -record(group,  {res :: {binary(), binary(), binary()}}).
 
 -type ref()       :: #msg{} | #group{}.
