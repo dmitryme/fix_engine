@@ -39,7 +39,7 @@ handle_cast({SessionID, Direction, Msg}, State) ->
          file:write(Descr, [fix_utils:now(), <<" START TRACE\n">>]),
          true = ets:insert(State#state.fdescr, {SessionID, Descr})
    end,
-   {ok, BinMsg} = fix_parser:msg_to_str(Msg, $|),
+   {ok, BinMsg} = fix_parser:msg_to_binary(Msg, $|),
    file:write(Descr, [print_direction(Direction), <<" ">>, fix_utils:now(), <<" ">>, BinMsg, <<"\n">>]),
    {noreply, State}.
 
