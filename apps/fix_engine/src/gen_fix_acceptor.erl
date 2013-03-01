@@ -6,7 +6,7 @@
 
 -behaviour(gen_server).
 
--export([set_socket/2, connect/1, disconnect/1]).
+-export([set_socket/2, connect/1, disconnect/1, get_current_state/1]).
 
 -export([start_link/1, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
@@ -25,18 +25,21 @@ connect(SessionID) ->
 disconnect(SessionID) ->
    gen_server:call(SessionID, {gen_fix_acceptor, disconnect}).
 
+get_current_state(SessionID) ->
+   gen_server:call(SessionID, {gen_fix_acceptor, get_current_state}).
+
 start_link(Args = #fix_session_acceptor_config{sender_comp_id = SenderCompID, target_comp_id = TargetCompID}) ->
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
-   error_logger:info_msg("Starting acceptor session [~p].", [SessionID]),
+   error_logger:info_msg("[~p]: starting.", [SessionID]),
    gen_server:start_link({local, SessionID}, ?MODULE, Args, []).
 
 init(#fix_session_acceptor_config{fix_protocol = Protocol, fix_parser_flags = ParserFlags, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
       username = Username, password = Password, use_tracer = UseTracer}) ->
+   SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
    case fix_parser:create(Protocol, [], ParserFlags) of
-      {ok, ParserRef} -> error_logger:info_msg("Parser [~p] has been created.", [fix_parser:get_version(ParserRef)]);
+      {ok, ParserRef} -> error_logger:info_msg("[~p]: parser [~p] has been created.", [SessionID, fix_parser:get_version(ParserRef)]);
       {fix_error, ParserRef} -> exit({fix_parser_error, ParserRef})
    end,
-   SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
    print_use_tracer(SessionID, UseTracer),
    {ok, #data{session_id = SessionID, parser = ParserRef, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
          username = Username, password = Password, use_tracer = UseTracer}}.
@@ -49,6 +52,8 @@ handle_call({gen_fix_acceptor, connect}, _From, Data) ->
 handle_call({gen_fix_acceptor, disconnect}, _From, Data) ->
    {ok, NewData} = ?MODULE:apply(Data, disconnect),
    {reply, ok, NewData};
+handle_call({gen_fix_acceptor, get_current_state}, _From, Data) ->
+   {reply, Data#data.state, Data};
 handle_call(_Msg, _From, Data) ->
    % TODO: will call derived module
    {reply, ok, Data}.
@@ -80,22 +85,20 @@ code_change(_OldVsn, Data, _Extra) ->
 % =========================== Acceptor FSM begin ======================================================
 % =====================================================================================================
 
+% ================= DISCONNECTED BEGIN ================================================================
 'DISCONNECTED'(connect, Data) ->
    {ok, Data#data{state = 'CONNECTED'}};
 
-'DISCONNECTED'(#msg{type = "A"}, Data) ->
-   error_logger:error_msg("Session [~p] not connected. Do connect first.", [Data#data.session_id]),
-   socket_close(Data#data.socket),
-   {ok, Data#data{socket = undef}};
-
-'DISCONNECTED'({fix_error, _ErrCode, _ErrText}, Data) ->
-   error_logger:error_msg("Session [~p] not connected. Do connect first.", [Data#data.session_id]),
-   socket_close(Data#data.socket),
-   {ok, Data#data{socket = undef}};
-
 'DISCONNECTED'(timeout, Data) ->
-   {ok, Data#data{timer_ref = undef}}.
+   {ok, Data#data{timer_ref = undef}};
 
+'DISCONNECTED'(_, Data) ->
+   error_logger:error_msg("[~p]: not connected. Do connect first.", [Data#data.session_id]),
+   socket_close(Data#data.socket),
+   {ok, Data#data{socket = undef}}.
+% ================= DISCONNECTED END ==================================================================
+
+% ================= CONNECTED BEGIN ===================================================================
 'CONNECTED'(timeout, Data) ->
    {ok, Data#data{timer_ref = undef}};
 
@@ -103,12 +106,13 @@ code_change(_OldVsn, Data, _Extra) ->
    {ok, Data#data{state = 'DISCONNECTED'}};
 
 'CONNECTED'({fix_error, ErrCode, ErrText}, Data) ->
-   error_logger:error_msg("Unable to parse message. ErrCode = [~p], ErrText = [~p].", [ErrCode, ErrText]),
+   LogoutMsg = create_logout(Data#data.parser, ErrText),
+   send_fix_message(LogoutMsg, Data),
    socket_close(Data#data.socket),
-   {ok, Data#data{socket = undef}};
+   {ok, Data#data{socket = undef, seq_num_out = Data#data.seq_num_out + 1}};
 
-'CONNECTED'(Msg = #msg{type = "A"}, Data = #data{socket = Socket, state = 'CONNECTED'}) ->
-   error_logger:info_msg("~p: logon received.", [Data#data.session_id]),
+'CONNECTED'(Msg, Data = #data{socket = Socket, state = 'CONNECTED'}) ->
+   error_logger:info_msg("[~p]: message [~p] received.", [Data#data.session_id, Msg#msg.type]),
    try
       validate_logon(Msg, Data#data.username, Data#data.password),
       {ok, HeartBtInt} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_HeartBtInt),
@@ -119,8 +123,8 @@ code_change(_OldVsn, Data, _Extra) ->
       send_fix_message(LogonReply, NewData),
       {ok, NewData#data{state = 'LOGGED_IN', seq_num_out = SeqNumOut + 1, timer_ref = restart_heartbeat(NewData)}}
    catch
-      throw:{badmatch, {fix_error, _, Reason}} ->
-         LogoutMsg = create_logout(Data#data.parser, Reason),
+      throw:{badmatch, {fix_error, _, ErrText}} ->
+         LogoutMsg = create_logout(Data#data.parser, ErrText),
          send_fix_message(LogoutMsg, Data),
          socket_close(Socket),
          {ok, Data#data{state = 'CONNECTED'}};
@@ -130,13 +134,16 @@ code_change(_OldVsn, Data, _Extra) ->
          socket_close(Socket),
          {ok, Data#data{state = 'CONNECTED'}};
       _:Err ->
-         error_logger:error_msg("Logon failed: ~p", [Err]),
+         error_logger:error_msg("[~p]: logon failed: ~p", [Err]),
          LogoutMsg = create_logout(Data#data.parser, "Logon failed"),
          send_fix_message(LogoutMsg, Data),
          socket_close(Socket),
          {ok, Data#data{state = 'CONNECTED'}}
    end.
 
+% ================= CONNECTED END =====================================================================
+
+% ================= LOGGED_IN BEGIN ===================================================================
 'LOGGED_IN'(timeout, Data) ->
    {ok, Msg} = fix_parser:create_msg(Data#data.parser, "0"),
    send_fix_message(Msg, Data),
@@ -150,6 +157,11 @@ code_change(_OldVsn, Data, _Extra) ->
    {ok, Data#data{socket = undef, seq_num_out = Data#data.seq_num_out + 1, state = 'DISCONNECTED'}};
 
 'LOGGED_IN'(tcp_closed, Data) ->
+   {ok, Data#data{socket = undef, state = 'CONNECTED'}};
+
+'LOGGED_IN'(#msg{type = "A"}, Data) ->
+   error_logger:error_msg("[~p]: unexpected logon received.", [Data#data.session_id]),
+   socket_close(Data#data.socket),
    {ok, Data#data{socket = undef, state = 'CONNECTED'}};
 
 'LOGGED_IN'(#msg{type = "0"}, Data) ->
@@ -166,6 +178,7 @@ code_change(_OldVsn, Data, _Extra) ->
    ok = fix_parser:set_string_field(HeartbeatMsg, ?FIXFieldTag_TestReqID, TestReqID),
    send_fix_message(HeartbeatMsg, Data),
    {ok, Data#data{seq_num_out = SeqNumOut + 1, timer_ref = restart_heartbeat(Data)}}.
+% ================= LOGGED_IN END =====================================================================
 
 % =====================================================================================================
 % =========================== Acceptor FSM end ========================================================
@@ -175,15 +188,15 @@ apply(Data = #data{session_id = SessionID, state = OldState}, Msg) ->
    case (catch erlang:apply(?MODULE, OldState, [Msg, Data])) of
       {ok, NewData = #data{state = NewState}} ->
          if NewState =/= OldState ->
-               error_logger:info_msg("Session [~p] state changed [~p]->[~p].", [SessionID, OldState, NewState]);
+               error_logger:info_msg("[~p]: state changed [~p]->[~p].", [SessionID, OldState, NewState]);
             true -> ok
          end,
          {ok, NewData};
       {'EXIT', {function_clause, [_]}} ->
-         error_logger:warning_msg("Unsupported session [~p] state [~p] message [~p].", [SessionID, OldState, Msg]),
+         error_logger:warning_msg("[~p]: unsupported state [~p] message [~p].", [SessionID, OldState, Msg]),
          {ok, Data};
       Other ->
-         error_logger:error_msg("Wrong call [~p]", [Other]),
+         error_logger:error_msg("[~p]: wrong call [~p]", [SessionID, Other]),
          exit({error_wrong_result, Other})
    end.
 
@@ -199,8 +212,8 @@ parse_binary(Bin, Data = #data{binary = PrefixBin}) ->
       {fix_error, ?FIX_ERROR_BODY_TOO_SHORT, _} ->
          NewData = Data#data{binary = <<PrefixBin/binary, Bin/binary>>};
       {fix_error, ErrCode, ErrText} ->
-         error_logger:error_msg("Unable to parse incoming message. Error = [~p], Description = [~p].", [ErrCode,
-               ErrText]),
+         error_logger:error_msg("[~p]: unable to parse incoming message. Error = [~p], Description = [~p].",
+            [Data#data.session_id, ErrCode, ErrText]),
          {ok, NewData} = ?MODULE:apply(Data, {fix_error, ErrCode, ErrText})
    end,
    {ok, NewData}.
@@ -219,7 +232,7 @@ validate_logon(Msg = #msg{type = "A"}, Username, Password) ->
          throw({error, "Wrong Username/Password"})
    end;
 validate_logon(_, _, _) ->
-   throw({error, "Not a logon message"}).
+   throw({error, "First message not a logon"}).
 
 create_logout(Parser, Text) ->
    {ok, Msg} = fix_parser:create_msg(Parser, "5"),
@@ -247,7 +260,7 @@ trace(Msg, Direction, #data{session_id = SID, use_tracer = true}) ->
 trace(_, _, _) -> ok.
 
 print_use_tracer(SessionID, true) ->
-   error_logger:info_msg("Session [~p] will use tracer.", [SessionID]);
+   error_logger:info_msg("[~p]: will use tracer.", [SessionID]);
 print_use_tracer(_SessionID, _) ->
    ok.
 
@@ -259,7 +272,8 @@ socket_close(Socket) ->
 socket_send(Socket, Msg) when is_port(Socket) ->
    gen_tcp:send(Socket, Msg);
 socket_send(Socket, Msg) ->
-   Socket ! Msg.
+   Socket ! Msg,
+   ok.
 
 socket_controlling_process(Socket, SessionPid) when is_port(Socket) ->
    gen_tcp:controlling_process(Socket, SessionPid);
