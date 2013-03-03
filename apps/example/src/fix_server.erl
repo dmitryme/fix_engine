@@ -8,13 +8,14 @@
 
 -behaviour(gen_fix_acceptor).
 
--record(state, {session_id, parser_ref, order_id = 1}).
+-record(state, {session_id, parser_ref, order_id = 1, reply}).
 
 start_link(SessionCfg) ->
    gen_fix_acceptor:start_link(SessionCfg, []).
 
 init(SessionID, ParserRef, _ModuleArgs) ->
-   {connect, #state{session_id = SessionID, parser_ref = ParserRef}}.
+   {ok, Reply} = fix_parser:create_msg(ParserRef, "8"),
+   {connect, #state{session_id = SessionID, parser_ref = ParserRef, reply = Reply}}.
 
 handle_call(_Request, _From, State) ->
    {reply, ok, State}.
@@ -25,11 +26,10 @@ handle_cast(_Request, State) ->
 handle_info(_Request, State) ->
    {noreply, State}.
 
-handle_fix(FixMsg = #msg{type = "D"}, State) ->
+handle_fix(FixMsg = #msg{type = "D"}, State = #state{reply = Reply}) ->
    {ok, ClOrdID} = fix_parser:get_string_field(FixMsg, ?FIXFieldTag_ClOrdID),
    {ok, Side} = fix_parser:get_char_field(FixMsg, ?FIXFieldTag_Side),
    {ok, Symbol} = fix_parser:get_string_field(FixMsg, ?FIXFieldTag_Symbol),
-   {ok, Reply} = fix_parser:create_msg(State#state.parser_ref, "8"),
    OrderID = "OID_" ++ integer_to_list(State#state.order_id),
    ok = fix_parser:set_string_field(Reply, ?FIXFieldTag_OrderID, OrderID),
    ok = fix_parser:set_string_field(Reply, ?FIXFieldTag_ExecID, "123"),

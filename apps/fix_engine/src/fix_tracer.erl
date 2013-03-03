@@ -9,7 +9,7 @@
 -record(state, {out_dir, fdescr}).
 
 trace(SessionID, Direction, Msg) ->
-   gen_server:cast(fix_tracer, {SessionID, Direction, Msg}).
+   gen_server:cast(fix_tracer, {SessionID, Direction, fix_utils:unow(), Msg}).
 
 start_link(Args) ->
    gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
@@ -29,7 +29,7 @@ init(Dir) ->
 handle_call(_Request, _From, State) ->
    {reply, ok, State}.
 
-handle_cast({SessionID, Direction, Msg}, State) ->
+handle_cast({SessionID, Direction, UNow, Msg}, State) ->
    case ets:lookup(State#state.fdescr, SessionID) of
       [{SessionID, Descr}] ->
          ok;
@@ -40,7 +40,7 @@ handle_cast({SessionID, Direction, Msg}, State) ->
          true = ets:insert(State#state.fdescr, {SessionID, Descr})
    end,
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, $|),
-   file:write(Descr, [print_direction(Direction), <<" ">>, fix_utils:now(), <<" ">>, BinMsg, <<"\n">>]),
+   file:write(Descr, [print_direction(Direction), <<" ">>, UNow, <<" ">>, BinMsg, <<"\n">>]),
    {noreply, State}.
 
 handle_info(_Info, State) ->

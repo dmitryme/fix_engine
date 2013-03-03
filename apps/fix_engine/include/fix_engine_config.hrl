@@ -39,5 +39,6 @@
       storade_dir       = "."    :: string(),
       storage_type      = dets   :: atom(),         % dets, ets, null
       storage_flags     = []     :: [term()],
+      socket_opts       = []     :: [gen_tcp:option()],
       sessions                   :: [#fix_session_acceptor_config{}|#fix_session_initiator_config{}]
    }).
