@@ -1,6 +1,7 @@
 -record(fix_session_acceptor_config,
    {
       module                             :: atom(),
+      module_args          = []          :: term(),
       sender_comp_id                     :: string(),
       target_comp_id                     :: string(),
       username             = []          :: string(),
@@ -15,6 +16,7 @@
 -record(fix_session_initiator_config,
    {
       module                             :: atom(),
+      module_args          = []          :: term(),
       sender_comp_id                     :: string(),
       target_comp_id                     :: string(),
       username             = []          :: string(),

@@ -36,7 +36,7 @@ handle_cast({SessionID, Direction, Msg}, State) ->
       [] ->
          FName = filename:join([State#state.out_dir, atom_to_list(SessionID) ++ ".tracer"]),
          {ok, Descr} = file:open(FName, [write, raw, append]),
-         file:write(Descr, [fix_utils:now(), <<" START TRACE\n">>]),
+         file:write(Descr, [fix_utils:now(), <<" START TRACE ('->' - incoming messages, '<-' - outgoing messages)\n">>]),
          true = ets:insert(State#state.fdescr, {SessionID, Descr})
    end,
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, $|),

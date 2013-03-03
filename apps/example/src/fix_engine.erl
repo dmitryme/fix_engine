@@ -10,7 +10,7 @@ configuration() ->
       tracer_dir = "./trace",
       sessions = [
          #fix_session_acceptor_config{
-            module = gen_fix_acceptor,
+            module = fix_server,
             sender_comp_id = "server",
             target_comp_id = "client",
             username = "",
