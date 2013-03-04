@@ -1,3 +1,10 @@
+
+-define(def_socket_opts, [
+      {reuseaddr, true},
+      {delay_send, false},
+      {nodelay, true},
+      {keepalive, true}]).
+
 -record(fix_session_acceptor_config,
    {
       module                             :: atom(),
@@ -34,11 +41,11 @@
 
 -record(fix_engine_config,
    {
-      listen_port                :: pos_integer(),
-      tracer_dir        = "."    :: string(),
-      storade_dir       = "."    :: string(),
-      storage_type      = dets   :: atom(),         % dets, ets, null
-      storage_flags     = []     :: [term()],
-      socket_opts       = []     :: [gen_tcp:option()],
-      sessions                   :: [#fix_session_acceptor_config{}|#fix_session_initiator_config{}]
+      listen_port                            :: pos_integer(),
+      tracer_dir        = "."                :: string(),
+      storade_dir       = "."                :: string(),
+      storage_type      = dets               :: atom(),         % dets, ets, null
+      storage_flags     = []                 :: [term()],
+      socket_opts       = ?def_socket_opts   :: [gen_tcp:option()],
+      sessions                               :: [#fix_session_acceptor_config{}|#fix_session_initiator_config{}]
    }).
