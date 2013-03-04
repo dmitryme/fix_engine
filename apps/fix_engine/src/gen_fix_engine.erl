@@ -15,9 +15,9 @@ start_link(Name, Args) ->
 init(Config = #fix_engine_config{listen_port = undefined}) ->
    init_common(Config),
    {ok, #state{}};
-init(Config = #fix_engine_config{listen_port = ListenPort}) ->
+init(Config = #fix_engine_config{listen_port = ListenPort, socket_opts = SocketOpts}) ->
    init_common(Config),
-   {Socket, InetAsyncRef} = open_socket(ListenPort),
+   {Socket, InetAsyncRef} = open_socket(ListenPort, SocketOpts),
    {ok, #state{socket = Socket, inet_async_ref = InetAsyncRef}}.
 
 init_common(Config) ->
@@ -41,8 +41,11 @@ handle_info({inet_async, ListenSocket, _Ref, {ok, ClientSocket}}, State) ->
       {error, ErrCode} -> exit({peername_error, ErrCode})
    end,
    inet_db:register_socket(ClientSocket, inet_tcp),
-   case prim_inet:getopts(ListenSocket, [active, nodelay, keepalive, delay_send, priority, tos]) of
+   case prim_inet:getopts(ListenSocket, [active, mode, buffer, delay_send, high_msgq_watermark, high_watermark, keepalive,
+            linger, low_msgq_watermark, nodelay, priority, recbuf, reuseaddr, send_timeout, send_timeout_close,
+         sndbuf, tos]) of
       {ok, Opts} ->
+         error_logger:info_msg("Accepted socket options: ~p.", [Opts]),
          case prim_inet:setopts(ClientSocket, Opts) of
             ok -> ok;
             Error ->
@@ -70,18 +73,18 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
    {ok, State}.
 
-open_socket(ListenPort) when is_number(ListenPort) ->
+open_socket(ListenPort, SocketOptsDirty) when is_number(ListenPort) ->
    error_logger:info_msg("Opening port ~p.", [ListenPort]),
-   {ok, ListenSocket} = gen_tcp:listen(ListenPort, [{active, false}, binary, {reuseaddr, true}, {keepalive, true},
-         {backlog, 30}]),
+   SocketOpts = [{active, false}, binary, {backlog, 100} | SocketOptsDirty],
+   error_logger:info_msg("Listen socket options are: ~p.", [SocketOpts]),
+   {ok, ListenSocket} = gen_tcp:listen(ListenPort, SocketOpts),
    case prim_inet:async_accept(ListenSocket, -1) of
       {ok, Ref} -> ok;
       {error, Ref} -> exit({async_accept, inet:format_error(Ref)})
    end,
    {ListenSocket, Ref};
-open_socket(ListenPort) ->
+open_socket(ListenPort, _SocketOpts) ->
    error_logger:info_msg("Listen port '~p' not opened.", [ListenPort]).
-
 
 -spec create_sessions([#fix_session_initiator_config{}|#fix_session_acceptor_config{}], pos_integer()) -> ok.
 create_sessions([], 0) ->
