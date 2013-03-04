@@ -55,8 +55,13 @@
    {noreply, NewState :: term()}.
 
 set_socket(SessionPid, Socket) ->
-   socket_controlling_process(Socket, SessionPid),
-   gen_server:call(SessionPid, {gen_fix_acceptor, {set_socket, Socket}}).
+   case gen_server:call(SessionPid, {gen_fix_acceptor, {set_socket, Socket}}) of
+      Err = {error, _Reason} ->
+         Err;
+      ok ->
+         socket_controlling_process(Socket, SessionPid),
+         ok
+   end.
 
 connect(SessionID) ->
    gen_server:call(SessionID, {gen_fix_acceptor, connect}).
@@ -100,6 +105,8 @@ init(#fix_session_acceptor_config{module = Module, module_args = MArgs, fix_prot
          Other
    end.
 
+handle_call({gen_fix_acceptor, {set_socket, _Socket}}, _From, Data = #data{socket = OldSocket}) when is_port(OldSocket) ->
+   {reply, {error, already_connected}, Data};
 handle_call({gen_fix_acceptor, {set_socket, Socket}}, _From, Data) ->
    {reply, ok, Data#data{socket = Socket}};
 handle_call({gen_fix_acceptor, connect}, _From, Data) ->
@@ -349,7 +356,7 @@ restart_heartbeat(#data{timer_ref = OldTimerRef, heartbeat_int = Timeout}) ->
 validate_logon(Msg = #msg{type = "A"}, Username, Password) ->
    {ok, Username1} = fix_parser:get_string_field(Msg, ?FIXFieldTag_Username, ""),
    {ok, Password1} = fix_parser:get_string_field(Msg, ?FIXFieldTag_Password, ""),
-   if ((Username == Username1) orelse (Password == Password1)) -> ok;
+   if ((Username == Username1) andalso (Password == Password1)) -> ok;
       true ->
          throw({error, "Wrong Username/Password"})
    end;
