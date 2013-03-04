@@ -3,8 +3,34 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("fix_engine/include/fix_engine_config.hrl").
 -include_lib("fix_engine/include/fix_parser.hrl").
+-include_lib("fix_engine/include/fix_fields.hrl").
+
+-behaviour(gen_fix_acceptor).
 
 -compile([export_all]).
+
+-export([init/3, handle_call/3, handle_cast/2, handle_info/2, handle_fix/2, terminate/2, code_change/3]).
+
+init(_SessionID, _ParserRef, _ModuleArgs) ->
+   {ok, []}.
+
+handle_call(_Request, _From, State) ->
+   {reply, ok, State}.
+
+handle_cast(_Request, State) ->
+   {noreply, State}.
+
+handle_info(_Request, State) ->
+   {noreply, State}.
+
+handle_fix(_FixMsg, State) ->
+   {noreply, State}.
+
+terminate(_Reason, _State) ->
+   ok.
+
+code_change(_OldVsn, State, _Extra) ->
+   {ok, State}.
 
 receive_all(Timeout, Acc) ->
    receive
@@ -35,16 +61,19 @@ check([Msg|Msgs], [Pattern|PatternList], Counter) ->
       ok ->
          check(Msgs, PatternList, Counter + 1);
       Ret ->
-         ct:fail("Pattern ~p unknown return. Should be at least 'ok'", [Counter])
+         ct:fail("Pattern ~p unknown return ~p. Stack = [~p]. Should be at least 'ok'", [Counter, Ret,
+               erlang:get_stacktrace()])
    end.
 
 
 all() ->
    [disconnected_connect_test,
-    disconnected_logon_test,
-    disconnected_bad_msg_test,
-    connected_timeout_test,
-    connected_bad_msg_test].
+      disconnected_logon_test,
+      disconnected_bad_msg_test,
+      connected_timeout_test,
+      connected_bad_msg_test,
+      connected_not_logon_msg_test,
+      connected_valid_logon_msg_test].
 
 init_per_suite(Config) ->
    Config.
@@ -54,15 +83,15 @@ end_per_suite(Config) ->
 
 init_per_testcase(TestCase, Config) ->
    SessionCfg = #fix_session_acceptor_config{
-      module = gen_fix_acceptor,
+      module = gen_fix_acceptor_SUITE,
       sender_comp_id = "server",
       target_comp_id = "client",
-      username = "",
-      password = "",
+      username = "user",
+      password = "password",
       fix_protocol ="../../../../deps/fix_parser/fix_descr/fix.4.4.xml",
       use_tracer = true
    },
-   {ok, Pid} = gen_fix_acceptor:start_link(SessionCfg),
+   {ok, Pid} = gen_fix_acceptor:start_link(SessionCfg, []),
    gen_fix_acceptor:set_socket(Pid, self()),
    {ok, ParserRef} = fix_parser:create("../../../../deps/fix_parser/fix_descr/fix.4.4.xml", [], []),
    [{parser_ref, ParserRef}, {session_pid, Pid} | Config].
@@ -125,3 +154,80 @@ connected_bad_msg_test(Config) ->
       ]),
    'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
    ok.
+
+connected_not_logon_msg_test(Config) ->
+   ParserRef = proplists:get_value(parser_ref, Config),
+   gen_fix_acceptor:connect(server_client),
+   'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
+   SessionPid = proplists:get_value(session_pid, Config),
+   LogonBin = <<"8=FIX.4.4\0019=56\00135=0\00149=server\00156=client\00134=96\00152=20130304-11:24:20.617\00110=032\001">>,
+   SessionPid ! {tcp, self(), LogonBin},
+   expected(1000,
+      [
+         fun(Bin) when is_binary(Bin) ->
+            {ok, Msg = #msg{type = "5"}, _} = fix_parser:binary_to_msg(ParserRef, ?FIX_SOH, Bin),
+            {ok, "First message not a logon"} = fix_parser:get_string_field(Msg, ?FIXFieldTag_Text),
+            ok
+         end,
+         fun(tcp_close) -> ok end
+      ]),
+   'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
+   ok.
+
+connected_valid_logon_msg_test(Config) ->
+   ParserRef = proplists:get_value(parser_ref, Config),
+   gen_fix_acceptor:connect(server_client),
+   'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
+   % valid logon message, but wrong username/password values
+   LogonBin = create_logon(ParserRef, "client", "server", 1, 60, "user", "password1"),
+   SessionPid = proplists:get_value(session_pid, Config),
+   SessionPid ! {tcp, self(), LogonBin},
+   expected(1000,
+      [
+         fun(Bin) when is_binary(Bin) ->
+            {ok, Msg = #msg{type = "5"}, _} = fix_parser:binary_to_msg(ParserRef, ?FIX_SOH, Bin),
+            {ok, "Wrong Username/Password"} = fix_parser:get_string_field(Msg, ?FIXFieldTag_Text),
+            ok
+         end,
+         fun(tcp_close) -> ok end
+      ]),
+   'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
+   LogonBin1 = create_logon(ParserRef, "client", "server", 1, 60, "user1", "password"),
+   SessionPid = proplists:get_value(session_pid, Config),
+   SessionPid ! {tcp, self(), LogonBin1},
+   expected(1000,
+      [
+         fun(Bin) when is_binary(Bin) ->
+            {ok, Msg = #msg{type = "5"}, _} = fix_parser:binary_to_msg(ParserRef, ?FIX_SOH, Bin),
+            {ok, "Wrong Username/Password"} = fix_parser:get_string_field(Msg, ?FIXFieldTag_Text),
+            ok
+         end,
+         fun(tcp_close) -> ok end
+      ]),
+   'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
+   LogonBin2 = create_logon(ParserRef, "client", "server", 1, 60, "user", "password"),
+   SessionPid = proplists:get_value(session_pid, Config),
+   SessionPid ! {tcp, self(), LogonBin2},
+   expected(1000,
+      [
+         fun(Bin) when is_binary(Bin) ->
+            {ok, Msg = #msg{type = "A"}, _} = fix_parser:binary_to_msg(ParserRef, ?FIX_SOH, Bin),
+            ok
+         end
+      ]),
+   'LOGGED_IN' == gen_fix_acceptor:get_current_state(server_client),
+   ok.
+
+
+create_logon(ParserRef, SenderCompID, TargetCompID, MsgSeqNum, HeartBtInt, Username, Password) ->
+   {ok, Logon} = fix_parser:create_msg(ParserRef, "A"),
+   ok = fix_parser:set_string_field(Logon, ?FIXFieldTag_SenderCompID, SenderCompID),
+   ok = fix_parser:set_string_field(Logon, ?FIXFieldTag_TargetCompID, TargetCompID),
+   ok = fix_parser:set_int32_field(Logon, ?FIXFieldTag_MsgSeqNum, MsgSeqNum),
+   ok = fix_parser:set_string_field(Logon, ?FIXFieldTag_SendingTime, fix_utils:now_utc()),
+   ok = fix_parser:set_int32_field(Logon, ?FIXFieldTag_EncryptMethod, 0),
+   ok = fix_parser:set_int32_field(Logon, ?FIXFieldTag_HeartBtInt, HeartBtInt),
+   ok = fix_parser:set_string_field(Logon, ?FIXFieldTag_Username, Username),
+   ok = fix_parser:set_string_field(Logon, ?FIXFieldTag_Password, Password),
+   {ok, LogonBin} = fix_parser:msg_to_binary(Logon, ?FIX_SOH),
+   LogonBin.
