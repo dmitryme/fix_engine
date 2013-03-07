@@ -32,17 +32,19 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
    {ok, State}.
 
-receive_all(Timeout, Acc) ->
+receive_all(_Timeout, 0, Acc) ->
+   lists:reverse(Acc);
+receive_all(Timeout, ExpectedMsgCont, Acc) ->
    receive
       Msg ->
-         receive_all(Timeout, [Msg|Acc])
+         receive_all(Timeout, ExpectedMsgCont - 1, [Msg|Acc])
    after
       Timeout ->
          lists:reverse(Acc)
    end.
 
 expected(Timeout, PatternList) ->
-   Msgs = receive_all(Timeout, []),
+   Msgs = receive_all(Timeout, length(PatternList), []),
    case (length(Msgs) == length(PatternList)) of
       true ->
          check(Msgs, PatternList, 1);
@@ -73,6 +75,8 @@ all() ->
       connected_timeout_test,
       connected_bad_msg_test,
       connected_not_logon_msg_test,
+      connected_invalid_password_msg_test,
+      connected_invalid_username_msg_test,
       connected_valid_logon_msg_test].
 
 init_per_suite(Config) ->
@@ -174,11 +178,10 @@ connected_not_logon_msg_test(Config) ->
    'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
    ok.
 
-connected_valid_logon_msg_test(Config) ->
+connected_invalid_password_msg_test(Config) ->
    ParserRef = proplists:get_value(parser_ref, Config),
    gen_fix_acceptor:connect(server_client),
    'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
-   % valid logon message, but wrong username/password values
    LogonBin = create_logon(ParserRef, "client", "server", 1, 60, "user", "password1"),
    SessionPid = proplists:get_value(session_pid, Config),
    SessionPid ! {tcp, self(), LogonBin},
@@ -191,10 +194,15 @@ connected_valid_logon_msg_test(Config) ->
          end,
          fun(tcp_close) -> ok end
       ]),
+   'CONNECTED' == gen_fix_acceptor:get_current_state(server_client).
+
+connected_invalid_username_msg_test(Config) ->
+   ParserRef = proplists:get_value(parser_ref, Config),
+   gen_fix_acceptor:connect(server_client),
    'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
-   LogonBin1 = create_logon(ParserRef, "client", "server", 1, 60, "user1", "password"),
+   LogonBin = create_logon(ParserRef, "client", "server", 1, 60, "user1", "password"),
    SessionPid = proplists:get_value(session_pid, Config),
-   SessionPid ! {tcp, self(), LogonBin1},
+   SessionPid ! {tcp, self(), LogonBin},
    expected(1000,
       [
          fun(Bin) when is_binary(Bin) ->
@@ -204,10 +212,15 @@ connected_valid_logon_msg_test(Config) ->
          end,
          fun(tcp_close) -> ok end
       ]),
+   'CONNECTED' == gen_fix_acceptor:get_current_state(server_client).
+
+connected_valid_logon_msg_test(Config) ->
+   ParserRef = proplists:get_value(parser_ref, Config),
+   gen_fix_acceptor:connect(server_client),
    'CONNECTED' == gen_fix_acceptor:get_current_state(server_client),
-   LogonBin2 = create_logon(ParserRef, "client", "server", 1, 60, "user", "password"),
+   LogonBin = create_logon(ParserRef, "client", "server", 1, 60, "user", "password"),
    SessionPid = proplists:get_value(session_pid, Config),
-   SessionPid ! {tcp, self(), LogonBin2},
+   SessionPid ! {tcp, self(), LogonBin},
    expected(1000,
       [
          fun(Bin) when is_binary(Bin) ->
@@ -215,8 +228,7 @@ connected_valid_logon_msg_test(Config) ->
             ok
          end
       ]),
-   'LOGGED_IN' == gen_fix_acceptor:get_current_state(server_client),
-   ok.
+   'LOGGED_IN' == gen_fix_acceptor:get_current_state(server_client).
 
 
 create_logon(ParserRef, SenderCompID, TargetCompID, MsgSeqNum, HeartBtInt, Username, Password) ->
