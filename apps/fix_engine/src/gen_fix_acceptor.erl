@@ -16,7 +16,8 @@
       module_state         :: term(),
       session_id           :: atom(),
       socket = undef       :: undef | port() | gen_tcp:socket(),
-      use_tracer = false   :: true | false,
+      tracer = undef       :: pid() | undef,
+      storage = undef      :: pid() | undef,
       parser               :: #parser{},
       seq_num_out = 1      :: pos_integer(),
       se_num_in = 1        :: pos_integer(),
@@ -80,16 +81,18 @@ start_link(Args = #fix_session_acceptor_config{sender_comp_id = SenderCompID, ta
    error_logger:info_msg("[~p]: starting.", [SessionID]),
    gen_server:start_link({local, SessionID}, ?MODULE, Args, Options).
 
-init(#fix_session_acceptor_config{module = Module, module_args = MArgs, fix_protocol = Protocol, fix_parser_flags = ParserFlags,
-      sender_comp_id = SenderCompID, target_comp_id = TargetCompID, username = Username, password = Password, use_tracer = UseTracer}) ->
+init(SessionCfg = #fix_session_acceptor_config{module = Module, module_args = MArgs, fix_protocol = Protocol, fix_parser_flags = ParserFlags,
+      sender_comp_id = SenderCompID, target_comp_id = TargetCompID, username = Username, password = Password}) ->
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
    case fix_parser:create(Protocol, [], ParserFlags) of
       {ok, ParserRef} -> error_logger:info_msg("[~p]: parser [~p] has been created.", [SessionID, fix_parser:get_version(ParserRef)]);
       {fix_error, ParserRef} -> exit({fix_parser_error, ParserRef})
    end,
-   print_use_tracer(SessionID, UseTracer),
+   %{ok, TracerId} = create_tracer(SessionID, SessionCfg),
+   %{ok, StorageId} = create_storage(SessionCfg),
    Data = #data{module = Module, session_id = SessionID, parser = ParserRef, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
-         username = Username, password = Password, use_tracer = UseTracer},
+         %username = Username, password = Password, tracer = TracerId, storage = StorageId},
+         username = Username, password = Password},
    case Module:init(SessionID, ParserRef, MArgs) of
       {ok, State} ->
          {ok, Data#data{module_state = State}};
@@ -219,7 +222,7 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    socket_close(NewData#data.socket),
    {ok, NewData#data{socket = undef}};
 
-'CONNECTED'(Msg, Data = #data{socket = Socket, state = 'CONNECTED'}) ->
+'CONNECTED'(Msg, Data = #data{session_id = SessionID, socket = Socket, state = 'CONNECTED'}) ->
    error_logger:info_msg("[~p]: message [~p] received.", [Data#data.session_id, Msg#msg.type]),
    try
       validate_logon(Msg, Data#data.username, Data#data.password),
@@ -232,17 +235,19 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
       {ok, Data2#data{state = 'LOGGED_IN', timer_ref = restart_heartbeat(Data2)}}
    catch
       throw:{badmatch, {fix_error, _, ErrText}} ->
+         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, ErrText]),
          LogoutMsg = create_logout(Data#data.parser, ErrText),
          {ok, Data3} = send_fix_message(LogoutMsg, Data),
          socket_close(Socket),
          {ok, Data3#data{socket = undef, state = 'CONNECTED'}};
       throw:{error, Reason} ->
+         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Reason]),
          LogoutMsg = create_logout(Data#data.parser, Reason),
          {ok, Data4} = send_fix_message(LogoutMsg, Data),
          socket_close(Socket),
          {ok, Data4#data{socket = undef, state = 'CONNECTED'}};
       _:Err ->
-         error_logger:error_msg("[~p]: logon failed: ~p", [Err]),
+         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Err]),
          LogoutMsg = create_logout(Data#data.parser, "Logon failed"),
          {ok, Data5} = send_fix_message(LogoutMsg, Data),
          socket_close(Socket),
@@ -384,14 +389,9 @@ send_fix_message(Msg, Data = #data{seq_num_out = SeqNumOut}) ->
    trace(Msg, out, Data),
    {ok, Data#data{seq_num_out = SeqNumOut + 1}}.
 
-trace(Msg, Direction, #data{session_id = SID, use_tracer = true}) ->
-   fix_tracer:trace(SID, Direction, Msg);
-trace(_, _, _) -> ok.
-
-print_use_tracer(SessionID, true) ->
-   error_logger:info_msg("[~p]: will use tracer.", [SessionID]);
-print_use_tracer(_SessionID, _) ->
-   ok.
+trace(_, _, #data{tracer = undef}) -> ok;
+trace(Msg, Direction, #data{tracer = TracerId}) ->
+   fix_tracer:trace(TracerId, Direction, Msg).
 
 socket_close(Socket) when is_port(Socket) ->
    gen_tcp:close(Socket);
@@ -408,3 +408,30 @@ socket_controlling_process(Socket, SessionPid) when is_port(Socket) ->
    gen_tcp:controlling_process(Socket, SessionPid);
 socket_controlling_process(_Socket, _SessionPid) ->
    ok.
+
+create_tracer(_SessionID, #fix_session_acceptor_config{tracer_type = null}) ->
+   {ok, undef};
+create_tracer(SessionID, #fix_session_acceptor_config{tracer_dir = Dir, tracer_type = TType}) ->
+   TracerId = fix_utils:list_to_atom("fix_tracer_" ++ atom_to_list(SessionID)),
+   {ok, _Pid} = supervisor:start_child(
+      fix_engine_sup, {
+         TracerId,
+         %{fix_tracer, start_link, [{TracerId, Dir, TType, SessionID}]},
+         {fix_tracer, start_link, [SessionID]},
+         permanent,
+         brutal_kill,
+         worker,
+         [fix_tracer]}),
+   error_logger:info_msg("TracerID: ~p", [TracerId]),
+   {ok, TracerId}.
+
+create_storage(_) -> {ok, undef}.
+%create_storage(_S)->
+   %{ok, _Pid} = supervisor:start_child(
+      %fix_engine_sup, {
+         %fix_storage,
+         %{fix_storage, start_link, [[]]},
+         %permanent,
+         %brutal_kill,
+         %worker,
+         %[fix_storage]}).
