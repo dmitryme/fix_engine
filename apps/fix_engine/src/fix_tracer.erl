@@ -6,15 +6,19 @@
 
 -export([trace/3]).
 
--record(state, {out_dir, fdescr}).
+-record(state, {fdescr}).
 
-trace(SessionID, Direction, Msg) ->
-   gen_server:cast(fix_tracer, {SessionID, Direction, fix_utils:unow(), Msg}).
+trace(TracerId, Direction, Msg) ->
+   gen_server:cast(TracerId, {Direction, fix_utils:unow(), Msg}).
 
 start_link(Args) ->
-   gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
+   error_logger:info_msg("ARG: ~p", [Args]).
 
-init(Dir) ->
+%start_link(Args = [{TracerId, _, _, _}]) ->
+   %error_logger:info_msg("ARG: ~p", [Args]),
+   %gen_server:start_link({local, TracerId}, ?MODULE, Args, []).
+
+init({_TracerId, Dir, _TType, SessionID}) ->
    case file:make_dir(Dir) of
       ok ->
          ok;
@@ -23,24 +27,18 @@ init(Dir) ->
       Error ->
          exit(Error)
    end,
-   error_logger:info_msg("Directory ~p has been created.", [Dir]),
-   {ok, #state{out_dir = Dir, fdescr = ets:new(tracer, [])}}.
+   FName = filename:join([Dir, atom_to_list(SessionID) ++ ".tracer"]),
+   {ok, FDescr} = file:open(FName, [write, raw, append]),
+   error_logger:info_msg("Tracer file ~p has been opened.", [FName]),
+   file:write(FDescr, [fix_utils:now(), <<" START TRACE ('->' - incoming messages, '<-' - outgoing messages)\n">>]),
+   {ok, #state{fdescr = FDescr}}.
 
 handle_call(_Request, _From, State) ->
    {reply, ok, State}.
 
-handle_cast({SessionID, Direction, UNow, Msg}, State) ->
-   case ets:lookup(State#state.fdescr, SessionID) of
-      [{SessionID, Descr}] ->
-         ok;
-      [] ->
-         FName = filename:join([State#state.out_dir, atom_to_list(SessionID) ++ ".tracer"]),
-         {ok, Descr} = file:open(FName, [write, raw, append]),
-         file:write(Descr, [fix_utils:now(), <<" START TRACE ('->' - incoming messages, '<-' - outgoing messages)\n">>]),
-         true = ets:insert(State#state.fdescr, {SessionID, Descr})
-   end,
+handle_cast({Direction, UNow, Msg}, State) ->
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, $|),
-   file:write(Descr, [print_direction(Direction), <<" ">>, UNow, <<" ">>, BinMsg, <<"\n">>]),
+   file:write(State#state.fdescr, [print_direction(Direction), <<" ">>, UNow, <<" ">>, BinMsg, <<"\n">>]),
    {noreply, State}.
 
 handle_info(_Info, State) ->
