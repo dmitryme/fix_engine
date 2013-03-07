@@ -25,9 +25,7 @@ init_common(Config) ->
    {ok, _SupPid} = fix_engine_sup:start_link(),
    ets:new(fix_acceptors, [named_table]),
    ets:new(fix_initiators, [named_table]),
-   create_tracer(Config#fix_engine_config.tracer_dir),
-   create_storage(),
-   ok = create_sessions(Config#fix_engine_config.sessions, 0).
+   ok = create_sessions(Config).
 
 handle_call(_Request, _From, State) ->
    {reply, ok, State}.
@@ -86,19 +84,24 @@ open_socket(ListenPort, SocketOptsDirty) when is_number(ListenPort) ->
 open_socket(ListenPort, _SocketOpts) ->
    error_logger:info_msg("Listen port '~p' not opened.", [ListenPort]).
 
--spec create_sessions([#fix_session_initiator_config{}|#fix_session_acceptor_config{}], pos_integer()) -> ok.
-create_sessions([], 0) ->
+-spec create_sessions(#fix_engine_config{}) -> ok.
+create_sessions(FixEngineCfg) ->
+   create_sessions(FixEngineCfg, FixEngineCfg#fix_engine_config.sessions, 0).
+
+-spec create_sessions(#fix_engine_config{}, [#fix_session_initiator_config{}|#fix_session_acceptor_config{}], pos_integer()) -> ok.
+create_sessions(_FixEngineCfg, [], 0) ->
    error_logger:warning_msg("No sessions are configured."),
    ok;
 
-create_sessions([], _Id) ->
+create_sessions(_FixEngineCfg, [], _Id) ->
    ok;
 
-create_sessions([Session = #fix_session_acceptor_config{}|Rest], Id) ->
+create_sessions(FixEngineCfg, [Session = #fix_session_acceptor_config{}|Rest], Id) ->
+   NewSession = merge_cfg(FixEngineCfg, Session),
    {ok, ChildPid} = supervisor:start_child(
       fix_engine_sup, {
          Id,
-         {Session#fix_session_acceptor_config.module, start_link, [Session]},
+         {Session#fix_session_acceptor_config.module, start_link, [NewSession]},
          permanent,
          brutal_kill,
          worker,
@@ -109,13 +112,14 @@ create_sessions([Session = #fix_session_acceptor_config{}|Rest], Id) ->
          fix_utils:make_session_id(
             Session#fix_session_acceptor_config.sender_comp_id,
             Session#fix_session_acceptor_config.target_comp_id), ChildPid}),
-   create_sessions(Rest, Id + 1);
+   create_sessions(FixEngineCfg, Rest, Id + 1);
 
-create_sessions([Session = #fix_session_initiator_config{}|Rest], Id) ->
+create_sessions(FixEngineCfg, [Session = #fix_session_initiator_config{}|Rest], Id) ->
+   NewSession = merge_cfg(FixEngineCfg, Session),
    {ok, ChildPid} = supervisor:start_child(
       fix_engine_sup, {
          Id,
-         {Session#fix_session_initiator_config.module, start_link, [Session]},
+         {Session#fix_session_initiator_config.module, start_link, [NewSession]},
          permanent,
          brutal_kill,
          worker,
@@ -126,23 +130,29 @@ create_sessions([Session = #fix_session_initiator_config{}|Rest], Id) ->
          fix_utils:make_session_id(
             Session#fix_session_initiator_config.sender_comp_id,
             Session#fix_session_initiator_config.target_comp_id), ChildPid}),
-   create_sessions(Rest, Id + 1).
+   create_sessions(FixEngineCfg, Rest, Id + 1).
 
-create_tracer(Dir) ->
-   supervisor:start_child(
-      fix_engine_sup, {
-         fix_tracer,
-         {fix_tracer, start_link, [Dir]},
-         permanent,
-         brutal_kill,
-         worker,
-         [fix_tracer]}).
-create_storage() ->
-   {ok, _Pid} = supervisor:start_child(
-      fix_engine_sup, {
-         fix_storage,
-         {fix_storage, start_link, [[]]},
-         permanent,
-         brutal_kill,
-         worker,
-         [fix_storage]}).
+merge_cfg(#fix_engine_config{tracer_dir = TDir1, tracer_type = TType1, storage_dir = SDir1, storage_type = SType1, storage_flags = SFlags1},
+      FixSessionCfg = #fix_session_initiator_config{tracer_dir = TDir2, tracer_type = TType2, storage_dir = SDir2, storage_type = SType2,
+         storage_flags = SFlags2}) ->
+   FixSessionCfg#fix_session_initiator_config{
+      tracer_dir = merge_param(TDir2, TDir1),
+      tracer_type = merge_param(TType2, TType1),
+      storage_dir = merge_param(SDir2, SDir1),
+      storage_type = merge_param(SType2, SType1),
+      storage_flags = merge_param(SFlags2, SFlags1)};
+
+merge_cfg(#fix_engine_config{tracer_dir = TDir1, tracer_type = TType1, storage_dir = SDir1, storage_type = SType1, storage_flags = SFlags1},
+      FixSessionCfg = #fix_session_acceptor_config{tracer_dir = TDir2, tracer_type = TType2, storage_dir = SDir2, storage_type = SType2,
+         storage_flags = SFlags2}) ->
+   FixSessionCfg#fix_session_acceptor_config{
+      tracer_dir = merge_param(TDir2, TDir1),
+      tracer_type = merge_param(TType2, TType1),
+      storage_dir = merge_param(SDir2, SDir1),
+      storage_type = merge_param(SType2, SType1),
+      storage_flags = merge_param(SFlags2, SFlags1)}.
+
+merge_param(undef, A) ->
+   A;
+merge_param(B, _) ->
+   B.
