@@ -25,15 +25,14 @@ start_link(Args = #fix_session_initiator_config{sender_comp_id = SenderCompID, t
    gen_server:start_link({local, SessionID}, ?MODULE, Args, []).
 
 init(#fix_session_initiator_config{fix_protocol = Protocol, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
-      username = Username, password = Password, use_tracer = UseTracer}) ->
+      username = Username, password = Password}) ->
    case fix_parser:create(Protocol, [], []) of
       {ok, ParserRef} -> error_logger:info_msg("Parser [~p] has been created.", [fix_parser:get_version(ParserRef)]);
       {error, ParserRef} -> exit({fix_parser_error, ParserRef})
    end,
    SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
-   print_use_tracer(SessionID, UseTracer),
    {ok, #data{session_id = SessionID, parser = ParserRef, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
-         username = Username, password = Password, use_tracer = UseTracer}}.
+         username = Username, password = Password}}.
 
 handle_call(connect, _From, Data = #data{state = 'DISCONNECTED'}) ->
    error_logger:info_msg("[~p] state changed ~p->~p.", [Data#data.session_id, Data#data.state, 'CONNECTED']),
@@ -59,8 +58,3 @@ terminate(_Reason, _Data) ->
 
 code_change(_OldVsn, Data, _Extra) ->
    {ok, Data}.
-
-print_use_tracer(SessionID, true) ->
-   error_logger:info_msg("Session [~p] will use tracer.", [SessionID]);
-print_use_tracer(_SessionID, _) ->
-   ok.
