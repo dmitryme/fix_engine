@@ -15,6 +15,10 @@
       password             = []          :: string(),
       fix_protocol                       :: string(),
       use_tracer           = false       :: boolean(),
+      tracer_dir           = undef       :: string(),
+      storade_dir          = undef       :: string(),        % will be derived from parent #fix_engine_config.storade_dir
+      storage_type         = undef       :: atom(),          % will be derived from parent #fix_engine_config.storade_type
+      storage_flags        = undef       :: [term()],        % will be derived from parent #fix_engine_config.storade_flags
       fix_parser_flags     = [check_all] :: [atom()],
       lost_heartbeat_delta = 500         :: pos_integer()    % in milliseconds. Heartbeat considered lost if no messages
                                                              % is received after HeartBtInt * 1000 + lost_heartbeat_delta
@@ -32,6 +36,10 @@
       host                               :: string(),
       port                               :: pos_integer(),
       use_tracer           = false       :: boolean(),
+      tracer_dir           = undef       :: string(),
+      storade_dir          = undef       :: string(),        % will be derived from parent #fix_engine_config.storade_dir
+      storage_type         = undef       :: atom(),          % will be derived from parent #fix_engine_config.storade_type
+      storage_flags        = undef       :: [term()],        % will be derived from parent #fix_engine_config.storade_flags
       fix_parser_flags     = [check_all] :: [atom()],
       reconnect_interval   = 1000        :: pos_integer(),   % in milliseconds
       reconnect_attempts   = 10          :: pos_integer(),
