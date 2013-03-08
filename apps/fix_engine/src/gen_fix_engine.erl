@@ -101,8 +101,9 @@ create_sessions(FixEngineCfg, [Session = #fix_session_acceptor_config{}|Rest], I
             Session#fix_session_acceptor_config.sender_comp_id,
             Session#fix_session_acceptor_config.target_comp_id),
    NewSession = merge_cfg(FixEngineCfg, Session),
-   {ok, TracerId} = create_tracer(SessionID, FixEngineCfg, NewSession),
-   NewSession1 = NewSession#fix_session_acceptor_config{tracer = TracerId},
+   {ok, Tracer} = create_tracer(SessionID, FixEngineCfg, NewSession),
+   {ok, Storage} = create_storage(SessionID, FixEngineCfg, NewSession),
+   NewSession1 = NewSession#fix_session_acceptor_config{tracer = Tracer, storage = Storage},
    {ok, ChildPid} = supervisor:start_child(
       fix_engine_sup, {
          Id,
@@ -121,7 +122,8 @@ create_sessions(FixEngineCfg, [Session = #fix_session_initiator_config{}|Rest], 
             Session#fix_session_initiator_config.target_comp_id),
    NewSession = merge_cfg(FixEngineCfg, Session),
    {ok, Tracer} = create_tracer(SessionID, FixEngineCfg, NewSession),
-   NewSession1 = NewSession#fix_session_initiator_config{tracer = Tracer},
+   {ok, Storage} = create_storage(SessionID, FixEngineCfg, NewSession),
+   NewSession1 = NewSession#fix_session_initiator_config{tracer = Tracer, storage = Storage},
    {ok, ChildPid} = supervisor:start_child(
       fix_engine_sup, {
          Id,
@@ -134,18 +136,20 @@ create_sessions(FixEngineCfg, [Session = #fix_session_initiator_config{}|Rest], 
    true = ets:insert(fix_initiators, {SessionID, ChildPid}),
    create_sessions(FixEngineCfg, Rest, Id + 1).
 
-merge_cfg(#fix_engine_config{tracer_type = TType1, storage_type = SType1, storage_flags = SFlags1},
-      FixSessionCfg = #fix_session_initiator_config{tracer_type = TType2, storage_type = SType2,
+merge_cfg(#fix_engine_config{fix_protocol = Proto1, tracer_type = TType1, storage_type = SType1, storage_flags = SFlags1},
+      FixSessionCfg = #fix_session_initiator_config{fix_protocol = Proto2, tracer_type = TType2, storage_type = SType2,
          storage_flags = SFlags2}) ->
    FixSessionCfg#fix_session_initiator_config{
+      fix_protocol = merge_param(Proto2, Proto1),
       tracer_type = merge_param(TType2, TType1),
       storage_type = merge_param(SType2, SType1),
       storage_flags = merge_param(SFlags2, SFlags1)};
 
-merge_cfg(#fix_engine_config{tracer_type = TType1, storage_type = SType1, storage_flags = SFlags1},
-      FixSessionCfg = #fix_session_acceptor_config{tracer_type = TType2, storage_type = SType2,
+merge_cfg(#fix_engine_config{fix_protocol = Proto1, tracer_type = TType1, storage_type = SType1, storage_flags = SFlags1},
+      FixSessionCfg = #fix_session_acceptor_config{fix_protocol = Proto2, tracer_type = TType2, storage_type = SType2,
          storage_flags = SFlags2}) ->
    FixSessionCfg#fix_session_acceptor_config{
+      fix_protocol = merge_param(Proto2, Proto1),
       tracer_type = merge_param(TType2, TType1),
       storage_type = merge_param(SType2, SType1),
       storage_flags = merge_param(SFlags2, SFlags1)}.
@@ -182,13 +186,31 @@ create_tracer(SessionID, #fix_engine_config{tracer_dir = Dir}, #fix_session_init
          [fix_tracer]}),
    {ok, Tracer}.
 
-create_storage(_) -> {ok, undef}.
-%create_storage(_S)->
-   %{ok, _Pid} = supervisor:start_child(
-      %fix_engine_sup, {
-         %fix_storage,
-         %{fix_storage, start_link, [[]]},
-         %permanent,
-         %brutal_kill,
-         %worker,
-         %[fix_storage]}).
+create_storage(_, _, #fix_session_acceptor_config{storage_type = null}) ->
+   {ok, undef};
+create_storage(_, _, #fix_session_initiator_config{storage_type = null}) ->
+   {ok, undef};
+create_storage(SessionID, #fix_engine_config{storage_dir = Dir}, #fix_session_acceptor_config{storage_type = TType,
+      storage_flags = Flags}) ->
+   Storage = fix_utils:list_to_atom("fix_storage_" ++ atom_to_list(SessionID)),
+   {ok, _Pid} = supervisor:start_child(
+      fix_engine_sup, {
+         Storage,
+         {fix_storage, start_link, [{Storage, Dir, TType, Flags, SessionID}]},
+         permanent,
+         brutal_kill,
+         worker,
+         [fix_storage]}),
+   {ok, Storage};
+create_storage(SessionID, #fix_engine_config{storage_dir = Dir}, #fix_session_initiator_config{storage_type = TType,
+      storage_flags = Flags}) ->
+   Storage = fix_utils:list_to_atom("fix_storage_" ++ atom_to_list(SessionID)),
+   {ok, _Pid} = supervisor:start_child(
+      fix_engine_sup, {
+         Storage,
+         {fix_storage, start_link, [{Storage, Dir, TType, Flags, SessionID}]},
+         permanent,
+         brutal_kill,
+         worker,
+         [fix_storage]}),
+   {ok, Storage}.

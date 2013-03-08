@@ -9,15 +9,23 @@ configuration() ->
       listen_port = 60000,
       tracer_dir = "./trace",
       tracer_type = file,
+      fix_protocol = "../deps/fix_parser/fix_descr/fix.4.4.xml",
       sessions = [
          #fix_session_acceptor_config{
             module = fix_server,
             sender_comp_id = "server",
             target_comp_id = "client",
             username = "",
-            password = "",
-            fix_protocol = "../deps/fix_parser/fix_descr/fix.4.4.xml"
-         }]
+            password = ""
+         },
+         #fix_session_acceptor_config{
+            module = fix_server,
+            sender_comp_id = "server",
+            target_comp_id = "client1",
+            username = "",
+            password = ""
+         }
+       ]
    }.
 
 start_link() ->

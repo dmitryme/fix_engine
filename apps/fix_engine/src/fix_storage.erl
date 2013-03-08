@@ -13,8 +13,8 @@ reset(SessionID) ->
 store(SessionID, MsgSeqNum, Msg) ->
    gen_server:cast(fix_storage, {store, SessionID, MsgSeqNum, Msg}).
 
-start_link(Args) ->
-   gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
+start_link(Args = {Storage, _, _, _, _}) ->
+   gen_server:start_link({local, Storage}, ?MODULE, Args, []).
 
 init(_Args) ->
    {ok, #state{}}.

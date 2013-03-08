@@ -13,9 +13,9 @@
       target_comp_id                     :: string(),
       username             = []          :: string(),
       password             = []          :: string(),
-      fix_protocol                       :: string(),
+      fix_protocol         = undef       :: string(),      % will be derived from parent #fix_engine_config.fix_protocol
       tracer               = undef       :: atom(),
-      tracer_type          = undef       :: atom(),        % will be derived from parent #fix_engine_config.storade_dir
+      tracer_type          = undef       :: atom(),        % will be derived from parent #fix_engine_config.tracer_type
       storage              = undef       :: atom(),
       storage_type         = undef       :: atom(),        % will be derived from parent #fix_engine_config.storade_type
       storage_flags        = undef       :: [term()],      % will be derived from parent #fix_engine_config.storade_flags
@@ -30,13 +30,13 @@
       module_args          = []          :: term(),
       sender_comp_id                     :: string(),
       target_comp_id                     :: string(),
-      username             = []          :: string(),
-      password             = []          :: string(),
-      fix_protocol                       :: string(),
       host                               :: string(),
       port                               :: pos_integer(),
+      username             = []          :: string(),
+      password             = []          :: string(),
+      fix_protocol         = undef       :: string(),        % will be derived from parent #fix_engine_config.fix_protocol
       tracer               = undef       :: atom(),
-      tracer_type          = undef       :: atom(),          % will be derived from parent #fix_engine_config.storade_dir
+      tracer_type          = undef       :: atom(),          % will be derived from parent #fix_engine_config.tracer_type
       storage              = undef       :: atom(),
       storage_type         = undef       :: atom(),          % will be derived from parent #fix_engine_config.storade_type
       storage_flags        = undef       :: [term()],        % will be derived from parent #fix_engine_config.storade_flags
@@ -50,6 +50,7 @@
 -record(fix_engine_config,
    {
       listen_port                            :: pos_integer(),
+      fix_protocol                           :: string(),    % path to XML with FIX protocol description
       tracer_type       = null               :: null | file,
       tracer_dir        = "."                :: string(),
       storage_dir       = "."                :: string(),
