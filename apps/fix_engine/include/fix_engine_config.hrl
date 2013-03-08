@@ -14,9 +14,9 @@
       username             = []          :: string(),
       password             = []          :: string(),
       fix_protocol                       :: string(),
+      tracer               = undef       :: atom(),
       tracer_type          = undef       :: atom(),        % will be derived from parent #fix_engine_config.storade_dir
-      tracer_dir           = undef       :: string(),      % will be derived from parent #fix_engine_config.storade_dir
-      storage_dir          = undef       :: string(),      % will be derived from parent #fix_engine_config.storade_dir
+      storage              = undef       :: atom(),
       storage_type         = undef       :: atom(),        % will be derived from parent #fix_engine_config.storade_type
       storage_flags        = undef       :: [term()],      % will be derived from parent #fix_engine_config.storade_flags
       fix_parser_flags     = [check_all] :: [atom()],
@@ -35,9 +35,9 @@
       fix_protocol                       :: string(),
       host                               :: string(),
       port                               :: pos_integer(),
+      tracer               = undef       :: atom(),
       tracer_type          = undef       :: atom(),          % will be derived from parent #fix_engine_config.storade_dir
-      tracer_dir           = undef       :: string(),        % will be derived from parent #fix_engine_config.storade_dir
-      storage_dir          = undef       :: string(),        % will be derived from parent #fix_engine_config.storade_dir
+      storage              = undef       :: atom(),
       storage_type         = undef       :: atom(),          % will be derived from parent #fix_engine_config.storade_type
       storage_flags        = undef       :: [term()],        % will be derived from parent #fix_engine_config.storade_flags
       fix_parser_flags     = [check_all] :: [atom()],

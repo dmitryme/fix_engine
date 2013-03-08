@@ -54,9 +54,9 @@ handle_info({inet_async, ListenSocket, _Ref, {ok, ClientSocket}}, State) ->
          error_logger:error_msg("Unable to get socket [~p] options. Error = [~p].", [ListenSocket, Error]),
          gen_tcp:close(ClientSocket)
    end,
-   SAPid = fix_session_acceptor:start_link(1000),
+   SAPid = fix_session_disp:start_link(1000),
    gen_tcp:controlling_process(ClientSocket, SAPid),
-   fix_session_acceptor:set_socket(SAPid, ClientSocket),
+   fix_session_disp:set_socket(SAPid, ClientSocket),
    case prim_inet:async_accept(ListenSocket, -1) of
       {ok, NewRef} -> ok;
       {error, NewRef} -> exit({async_accept, inet:format_error(NewRef)})
@@ -97,58 +97,56 @@ create_sessions(_FixEngineCfg, [], _Id) ->
    ok;
 
 create_sessions(FixEngineCfg, [Session = #fix_session_acceptor_config{}|Rest], Id) ->
+   SessionID = fix_utils:make_session_id(
+            Session#fix_session_acceptor_config.sender_comp_id,
+            Session#fix_session_acceptor_config.target_comp_id),
    NewSession = merge_cfg(FixEngineCfg, Session),
+   {ok, TracerId} = create_tracer(SessionID, FixEngineCfg, NewSession),
+   NewSession1 = NewSession#fix_session_acceptor_config{tracer = TracerId},
    {ok, ChildPid} = supervisor:start_child(
       fix_engine_sup, {
          Id,
-         {Session#fix_session_acceptor_config.module, start_link, [NewSession]},
+         {Session#fix_session_acceptor_config.module, start_link, [NewSession1]},
          permanent,
          brutal_kill,
          worker,
          [Session#fix_session_acceptor_config.module]
       }),
-   true = ets:insert(
-      fix_acceptors, {
-         fix_utils:make_session_id(
-            Session#fix_session_acceptor_config.sender_comp_id,
-            Session#fix_session_acceptor_config.target_comp_id), ChildPid}),
+   true = ets:insert(fix_acceptors, {SessionID, ChildPid}),
    create_sessions(FixEngineCfg, Rest, Id + 1);
 
 create_sessions(FixEngineCfg, [Session = #fix_session_initiator_config{}|Rest], Id) ->
+   SessionID = fix_utils:make_session_id(
+            Session#fix_session_initiator_config.sender_comp_id,
+            Session#fix_session_initiator_config.target_comp_id),
    NewSession = merge_cfg(FixEngineCfg, Session),
+   {ok, Tracer} = create_tracer(SessionID, FixEngineCfg, NewSession),
+   NewSession1 = NewSession#fix_session_initiator_config{tracer = Tracer},
    {ok, ChildPid} = supervisor:start_child(
       fix_engine_sup, {
          Id,
-         {Session#fix_session_initiator_config.module, start_link, [NewSession]},
+         {Session#fix_session_initiator_config.module, start_link, [NewSession1]},
          permanent,
          brutal_kill,
          worker,
          [Session#fix_session_initiator_config.module]
       }),
-   true = ets:insert(
-      fix_initiators, {
-         fix_utils:make_session_id(
-            Session#fix_session_initiator_config.sender_comp_id,
-            Session#fix_session_initiator_config.target_comp_id), ChildPid}),
+   true = ets:insert(fix_initiators, {SessionID, ChildPid}),
    create_sessions(FixEngineCfg, Rest, Id + 1).
 
-merge_cfg(#fix_engine_config{tracer_dir = TDir1, tracer_type = TType1, storage_dir = SDir1, storage_type = SType1, storage_flags = SFlags1},
-      FixSessionCfg = #fix_session_initiator_config{tracer_dir = TDir2, tracer_type = TType2, storage_dir = SDir2, storage_type = SType2,
+merge_cfg(#fix_engine_config{tracer_type = TType1, storage_type = SType1, storage_flags = SFlags1},
+      FixSessionCfg = #fix_session_initiator_config{tracer_type = TType2, storage_type = SType2,
          storage_flags = SFlags2}) ->
    FixSessionCfg#fix_session_initiator_config{
-      tracer_dir = merge_param(TDir2, TDir1),
       tracer_type = merge_param(TType2, TType1),
-      storage_dir = merge_param(SDir2, SDir1),
       storage_type = merge_param(SType2, SType1),
       storage_flags = merge_param(SFlags2, SFlags1)};
 
-merge_cfg(#fix_engine_config{tracer_dir = TDir1, tracer_type = TType1, storage_dir = SDir1, storage_type = SType1, storage_flags = SFlags1},
-      FixSessionCfg = #fix_session_acceptor_config{tracer_dir = TDir2, tracer_type = TType2, storage_dir = SDir2, storage_type = SType2,
+merge_cfg(#fix_engine_config{tracer_type = TType1, storage_type = SType1, storage_flags = SFlags1},
+      FixSessionCfg = #fix_session_acceptor_config{tracer_type = TType2, storage_type = SType2,
          storage_flags = SFlags2}) ->
    FixSessionCfg#fix_session_acceptor_config{
-      tracer_dir = merge_param(TDir2, TDir1),
       tracer_type = merge_param(TType2, TType1),
-      storage_dir = merge_param(SDir2, SDir1),
       storage_type = merge_param(SType2, SType1),
       storage_flags = merge_param(SFlags2, SFlags1)}.
 
@@ -156,3 +154,41 @@ merge_param(undef, A) ->
    A;
 merge_param(B, _) ->
    B.
+
+create_tracer(_, _, #fix_session_acceptor_config{tracer_type = null}) ->
+   {ok, undef};
+create_tracer(_, _, #fix_session_initiator_config{tracer_type = null}) ->
+   {ok, undef};
+create_tracer(SessionID, #fix_engine_config{tracer_dir = Dir}, #fix_session_acceptor_config{tracer_type = TType}) ->
+   Tracer = fix_utils:list_to_atom("fix_tracer_" ++ atom_to_list(SessionID)),
+   {ok, _Pid} = supervisor:start_child(
+      fix_engine_sup, {
+         Tracer,
+         {fix_tracer, start_link, [{Tracer, Dir, TType, SessionID}]},
+         permanent,
+         brutal_kill,
+         worker,
+         [fix_tracer]}),
+   {ok, Tracer};
+create_tracer(SessionID, #fix_engine_config{tracer_dir = Dir}, #fix_session_initiator_config{tracer_type = TType}) ->
+   Tracer = fix_utils:list_to_atom("fix_tracer_" ++ atom_to_list(SessionID)),
+   {ok, _Pid} = supervisor:start_child(
+      fix_engine_sup, {
+         Tracer,
+         {fix_tracer, start_link, [{Tracer, Dir, TType, SessionID}]},
+         permanent,
+         brutal_kill,
+         worker,
+         [fix_tracer]}),
+   {ok, Tracer}.
+
+create_storage(_) -> {ok, undef}.
+%create_storage(_S)->
+   %{ok, _Pid} = supervisor:start_child(
+      %fix_engine_sup, {
+         %fix_storage,
+         %{fix_storage, start_link, [[]]},
+         %permanent,
+         %brutal_kill,
+         %worker,
+         %[fix_storage]}).

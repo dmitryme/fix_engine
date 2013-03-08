@@ -93,7 +93,8 @@ init_per_testcase(TestCase, Config) ->
       username = "user",
       password = "password",
       fix_protocol ="../../../../deps/fix_parser/fix_descr/fix.4.4.xml",
-      use_tracer = true
+      tracer_type = null,
+      storage_type = null
    },
    {ok, Pid} = gen_fix_acceptor:start_link(SessionCfg, []),
    gen_fix_acceptor:set_socket(Pid, self()),

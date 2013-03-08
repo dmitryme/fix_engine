@@ -8,15 +8,11 @@
 
 -record(state, {fdescr}).
 
-trace(TracerId, Direction, Msg) ->
-   gen_server:cast(TracerId, {Direction, fix_utils:unow(), Msg}).
+trace(Tracer, Direction, Msg) ->
+   gen_server:cast(Tracer, {Direction, fix_utils:unow(), Msg}).
 
-start_link(Args) ->
-   error_logger:info_msg("ARG: ~p", [Args]).
-
-%start_link(Args = [{TracerId, _, _, _}]) ->
-   %error_logger:info_msg("ARG: ~p", [Args]),
-   %gen_server:start_link({local, TracerId}, ?MODULE, Args, []).
+start_link(Args = {Tracer, _, _, _}) ->
+   gen_server:start_link({local, Tracer}, ?MODULE, Args, []).
 
 init({_TracerId, Dir, _TType, SessionID}) ->
    case file:make_dir(Dir) of
@@ -29,7 +25,7 @@ init({_TracerId, Dir, _TType, SessionID}) ->
    end,
    FName = filename:join([Dir, atom_to_list(SessionID) ++ ".tracer"]),
    {ok, FDescr} = file:open(FName, [write, raw, append]),
-   error_logger:info_msg("Tracer file ~p has been opened.", [FName]),
+   error_logger:info_msg("[~p]: tracer file ~p has been opened.", [SessionID, FName]),
    file:write(FDescr, [fix_utils:now(), <<" START TRACE ('->' - incoming messages, '<-' - outgoing messages)\n">>]),
    {ok, #state{fdescr = FDescr}}.
 
