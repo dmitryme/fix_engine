@@ -10,8 +10,8 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(data, {session_id, socket = undef, use_tracer = false, parser, seq_num_out = 1, se_num_in = 1, sender_comp_id, target_comp_id, username,
-      password, state = 'DISCONNECTED', heartbeat_int, timer_ref = undef, binary = <<>>}).
+-record(data, {session_id, socket, use_tracer = false, parser, seq_num_out = 1, se_num_in = 1, sender_comp_id, target_comp_id, username,
+      password, state = 'DISCONNECTED', heartbeat_int, timer_ref, binary = <<>>}).
 
 connect(SessionID) ->
    gen_server:call(SessionID, connect).
@@ -19,18 +19,16 @@ connect(SessionID) ->
 disconnect(SessionID) ->
    gen_server:call(SessionID, disconnect).
 
-start_link(Args = #fix_session_initiator_config{sender_comp_id = SenderCompID, target_comp_id = TargetCompID}) ->
-   SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
+start_link(Args = #fix_session_config{type = initiator, session_id = SessionID}) ->
    error_logger:info_msg("Starting initiator session [~p].", [SessionID]),
    gen_server:start_link({local, SessionID}, ?MODULE, Args, []).
 
-init(#fix_session_initiator_config{fix_protocol = Protocol, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
-      username = Username, password = Password}) ->
+init(#fix_session_config{session_id = SessionID, fix_protocol = Protocol, sender_comp_id = SenderCompID,
+      target_comp_id = TargetCompID, username = Username, password = Password}) ->
    case fix_parser:create(Protocol, [], []) of
       {ok, ParserRef} -> error_logger:info_msg("Parser [~p] has been created.", [fix_parser:get_version(ParserRef)]);
       {error, ParserRef} -> exit({fix_parser_error, ParserRef})
    end,
-   SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
    {ok, #data{session_id = SessionID, parser = ParserRef, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
          username = Username, password = Password}}.
 

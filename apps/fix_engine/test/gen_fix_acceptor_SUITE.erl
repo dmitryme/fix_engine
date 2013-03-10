@@ -86,15 +86,17 @@ end_per_suite(Config) ->
    Config.
 
 init_per_testcase(TestCase, Config) ->
-   SessionCfg = #fix_session_acceptor_config{
+   SessionCfg = #fix_session_config{
+      type = acceptor,
       module = gen_fix_acceptor_SUITE,
       sender_comp_id = "server",
       target_comp_id = "client",
+      session_id = server_client,
       username = "user",
       password = "password",
       fix_protocol ="../../../../deps/fix_parser/fix_descr/fix.4.4.xml",
-      tracer_type = null,
-      storage_type = null
+      tracer_module = null,
+      storage_module = null
    },
    {ok, Pid} = gen_fix_acceptor:start_link(SessionCfg, []),
    gen_fix_acceptor:set_socket(Pid, self()),

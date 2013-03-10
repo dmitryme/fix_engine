@@ -15,9 +15,9 @@
 -record(data, {module      :: atom(),
       module_state         :: term(),
       session_id           :: atom(),
-      socket = undef       :: undef | port() | gen_tcp:socket(),
-      tracer = undef       :: pid() | undef,
-      storage = undef      :: pid() | undef,
+      socket               :: port() | gen_tcp:socket(),
+      tracer               :: pid(),
+      storage              :: pid(),
       parser               :: #parser{},
       seq_num_out = 1      :: pos_integer(),
       se_num_in = 1        :: pos_integer(),
@@ -27,7 +27,7 @@
       password             :: string(),
       state = 'DISCONNECTED' :: atom(),
       heartbeat_int        :: pos_integer(),
-      timer_ref = undef    :: reference(),
+      timer_ref            :: reference(),
       binary = <<>>        :: binary()}).
 
 -callback init(atom(), #parser{}, term()) ->
@@ -76,14 +76,13 @@ get_current_state(SessionID) ->
 send_fix(SessionID, FixMsg) ->
    gen_server:call(SessionID, {gen_fix_acceptor, send_fix, FixMsg}).
 
-start_link(Args = #fix_session_acceptor_config{sender_comp_id = SenderCompID, target_comp_id = TargetCompID}, Options) ->
-   SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
+start_link(Args = #fix_session_config{type = acceptor, session_id = SessionID}, Options) ->
    error_logger:info_msg("[~p]: starting.", [SessionID]),
    gen_server:start_link({local, SessionID}, ?MODULE, Args, Options).
 
-init(#fix_session_acceptor_config{module = Module, module_args = MArgs, fix_protocol = Protocol, fix_parser_flags = ParserFlags,
-      sender_comp_id = SenderCompID, target_comp_id = TargetCompID, username = Username, password = Password, tracer = Tracer}) ->
-   SessionID = fix_utils:make_session_id(SenderCompID, TargetCompID),
+init(#fix_session_config{session_id = SessionID, module = Module, module_args = MArgs, fix_protocol = Protocol,
+      fix_parser_flags = ParserFlags, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
+      username = Username, password = Password, tracer = Tracer}) ->
    case fix_parser:create(Protocol, [], ParserFlags) of
       {ok, ParserRef} -> error_logger:info_msg("[~p]: parser [~p] has been created.", [SessionID, fix_parser:get_version(ParserRef)]);
       {fix_error, ParserRef} -> exit({fix_parser_error, ParserRef})
@@ -198,17 +197,17 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    {ok, Data#data{state = 'CONNECTED'}};
 
 'DISCONNECTED'(timeout, Data) ->
-   {ok, Data#data{timer_ref = undef}};
+   {ok, Data#data{timer_ref = undefined}};
 
 'DISCONNECTED'(_, Data) ->
    error_logger:error_msg("[~p]: not connected. Do connect first.", [Data#data.session_id]),
    socket_close(Data#data.socket),
-   {ok, Data#data{socket = undef}}.
+   {ok, Data#data{socket = undefined}}.
 % ================= DISCONNECTED END ==================================================================
 
 % ================= CONNECTED BEGIN ===================================================================
 'CONNECTED'(timeout, Data) ->
-   {ok, Data#data{timer_ref = undef}};
+   {ok, Data#data{timer_ref = undefined}};
 
 'CONNECTED'(disconnect, Data) ->
    {ok, Data#data{state = 'DISCONNECTED'}};
@@ -217,7 +216,7 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    LogoutMsg = create_logout(Data#data.parser, ErrText),
    {ok, NewData} = send_fix_message(LogoutMsg, Data),
    socket_close(NewData#data.socket),
-   {ok, NewData#data{socket = undef}};
+   {ok, NewData#data{socket = undefined}};
 
 'CONNECTED'(Msg, Data = #data{session_id = SessionID, socket = Socket, state = 'CONNECTED'}) ->
    error_logger:info_msg("[~p]: message [~p] received.", [Data#data.session_id, Msg#msg.type]),
@@ -236,19 +235,19 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
          LogoutMsg = create_logout(Data#data.parser, ErrText),
          {ok, Data3} = send_fix_message(LogoutMsg, Data),
          socket_close(Socket),
-         {ok, Data3#data{socket = undef, state = 'CONNECTED'}};
+         {ok, Data3#data{socket = undefined, state = 'CONNECTED'}};
       throw:{error, Reason} ->
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Reason]),
          LogoutMsg = create_logout(Data#data.parser, Reason),
          {ok, Data4} = send_fix_message(LogoutMsg, Data),
          socket_close(Socket),
-         {ok, Data4#data{socket = undef, state = 'CONNECTED'}};
+         {ok, Data4#data{socket = undefined, state = 'CONNECTED'}};
       _:Err ->
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Err]),
          LogoutMsg = create_logout(Data#data.parser, "Logon failed"),
          {ok, Data5} = send_fix_message(LogoutMsg, Data),
          socket_close(Socket),
-         {ok, Data5#data{socket = undef, state = 'CONNECTED'}}
+         {ok, Data5#data{socket = undefined, state = 'CONNECTED'}}
    end.
 
 % ================= CONNECTED END =====================================================================
@@ -264,15 +263,15 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    Msg = create_logout(Data#data.parser, "Explicitly disconnected"),
    {ok, NewData} = send_fix_message(Msg, Data),
    socket_close(Data#data.socket),
-   {ok, NewData#data{socket = undef, state = 'DISCONNECTED'}};
+   {ok, NewData#data{socket = undefined, state = 'DISCONNECTED'}};
 
 'LOGGED_IN'(tcp_closed, Data) ->
-   {ok, Data#data{socket = undef, state = 'CONNECTED'}};
+   {ok, Data#data{socket = undefined, state = 'CONNECTED'}};
 
 'LOGGED_IN'(#msg{type = "A"}, Data) ->
    error_logger:error_msg("[~p]: unexpected logon received.", [Data#data.session_id]),
    socket_close(Data#data.socket),
-   {ok, Data#data{socket = undef, state = 'CONNECTED'}};
+   {ok, Data#data{socket = undefined, state = 'CONNECTED'}};
 
 'LOGGED_IN'(#msg{type = "0"}, Data) ->
    {ok, Data};
@@ -280,7 +279,7 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 'LOGGED_IN'(#msg{type = "5"}, Data) ->
    Logout = create_logout(Data#data.parser, "Bye"),
    {ok, NewData} = send_fix_message(Logout, Data),
-   {ok, NewData#data{timer_ref = undef}};
+   {ok, NewData#data{timer_ref = undefined}};
 
 'LOGGED_IN'(TestRequestMsg = #msg{type = "1"}, Data) ->
    {ok, TestReqID} = fix_parser:get_string_field(TestRequestMsg, ?FIXFieldTag_TestReqID),
@@ -348,7 +347,7 @@ parse_binary(Bin, Data = #data{binary = PrefixBin}) ->
          ?MODULE:apply(Data, {fix_error, ErrCode, ErrText})
    end.
 
-restart_heartbeat(#data{timer_ref = undef, heartbeat_int = Timeout}) ->
+restart_heartbeat(#data{timer_ref = undefined, heartbeat_int = Timeout}) ->
    erlang:start_timer(Timeout, self(), heartbeat);
 restart_heartbeat(#data{timer_ref = OldTimerRef, heartbeat_int = Timeout}) ->
    erlang:cancel_timer(OldTimerRef),
@@ -386,7 +385,7 @@ send_fix_message(Msg, Data = #data{seq_num_out = SeqNumOut}) ->
    trace(Msg, out, Data),
    {ok, Data#data{seq_num_out = SeqNumOut + 1}}.
 
-trace(_, _, #data{tracer = undef}) -> ok;
+trace(_, _, #data{tracer = undefined}) -> ok;
 trace(Msg, Direction, #data{tracer = Tracer}) ->
    fix_tracer:trace(Tracer, Direction, Msg).
 
