@@ -40,7 +40,7 @@
       tracer_module     = null               :: atom(),      % use null, if you don't want to use tracer
       tracer_dir        = "."                :: string(),
       tracer_flags      = []                 :: [term()],
-      storage_module    = fix_storage        :: atom(),      % use null, if you don't want use recovery
+      storage_module    = null               :: atom(),      % use null, if you don't want use recovery
       storage_dir       = "."                :: string(),
       storage_flags     = []                 :: [term()],
       socket_opts       = ?def_socket_opts   :: [gen_tcp:option()],
