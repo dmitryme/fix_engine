@@ -8,8 +8,10 @@ configuration() ->
    #fix_engine_config{
       listen_port = 60000,
       tracer_module = fix_tracer_file,
-      storage_module = fix_storage_dets,
       tracer_dir = "./trace",
+      storage_module = fix_storage_dets,
+      storage_dir = "./storage",
+      storage_flags = [{estimated_no_objects, 1000000}],
       fix_protocol = "../deps/fix_parser/fix_descr/fix.4.4.xml",
       sessions = [
          #fix_session_config{
