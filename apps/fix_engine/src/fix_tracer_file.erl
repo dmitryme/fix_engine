@@ -6,12 +6,7 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--export([trace/3]).
-
 -record(state, {fdescr}).
-
-trace(Tracer, Direction, Msg) ->
-   gen_server:cast(Tracer, {Direction, fix_utils:unow(), Msg}).
 
 start_link(SessionCfg = #fix_session_config{tracer = Tracer}) ->
    gen_server:start_link({local, Tracer}, ?MODULE, SessionCfg, []).
