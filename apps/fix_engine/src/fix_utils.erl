@@ -7,7 +7,8 @@
       now_utc/0,
       unow_utc/0,
       now/0,
-      unow/0]).
+      unow/0,
+      trace/3]).
 
 list_to_atom(List) ->
    try erlang:list_to_existing_atom(List) of
@@ -59,3 +60,6 @@ unow() ->
    {{YYYY, M, DD},{HH, MM, SS}} = calendar:now_to_local_time(Now),
    lists:flatten(io_lib:format("~4.10.0B~2.10.0B~2.10.0B-~2.10.0B:~2.10.0B:~2.10.0B.~6.10.0B",
          [YYYY, M, DD, HH, MM, SS, MicroSec])).
+
+trace(Tracer, Direction, Msg) ->
+   gen_server:cast(Tracer, {Direction, fix_utils:unow(), Msg}).
