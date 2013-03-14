@@ -8,7 +8,10 @@
       unow_utc/0,
       now/0,
       unow/0,
-      trace/3]).
+      trace/3,
+      reset/2,
+      store/3,
+      make_dir/1]).
 
 list_to_atom(List) ->
    try erlang:list_to_existing_atom(List) of
@@ -63,3 +66,19 @@ unow() ->
 
 trace(Tracer, Direction, Msg) ->
    gen_server:cast(Tracer, {Direction, fix_utils:unow(), Msg}).
+
+reset(Storage, SessionID) ->
+   gen_server:cast(Storage, {reset, SessionID}).
+
+store(Storage, MsgSeqNum, Msg) ->
+   gen_server:cast(Storage, {store, MsgSeqNum, Msg}).
+
+make_dir(Dir) ->
+   case file:make_dir(Dir) of
+      ok ->
+         ok;
+      {error, eexist} ->
+         ok;
+      Error ->
+         exit(Error)
+   end.
