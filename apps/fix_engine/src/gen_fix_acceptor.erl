@@ -82,13 +82,13 @@ start_link(Args = #fix_session_config{type = acceptor, session_id = SessionID}, 
 
 init(#fix_session_config{session_id = SessionID, module = Module, module_args = MArgs, fix_protocol = Protocol,
       fix_parser_flags = ParserFlags, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
-      username = Username, password = Password, tracer = Tracer}) ->
+      username = Username, password = Password, tracer = Tracer, storage = Storage}) ->
    case fix_parser:create(Protocol, [], ParserFlags) of
       {ok, ParserRef} -> error_logger:info_msg("[~p]: parser [~p] has been created.", [SessionID, fix_parser:get_version(ParserRef)]);
       {fix_error, ParserRef} -> exit({fix_parser_error, ParserRef})
    end,
    Data = #data{module = Module, session_id = SessionID, parser = ParserRef, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
-         username = Username, password = Password, tracer = Tracer},
+         username = Username, password = Password, tracer = Tracer, storage = Storage},
    case Module:init(SessionID, ParserRef, MArgs) of
       {ok, State} ->
          {ok, Data#data{module_state = State}};
@@ -394,11 +394,16 @@ send_fix_message(Msg, Data = #data{seq_num_out = SeqNumOut}) ->
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
    ok = socket_send(Data#data.socket, BinMsg),
    trace(Msg, out, Data),
+   store(SeqNumOut, BinMsg, Data),
    {ok, Data#data{seq_num_out = SeqNumOut + 1}}.
 
 trace(_, _, #data{tracer = undefined}) -> ok;
 trace(Msg, Direction, #data{tracer = Tracer}) ->
    fix_utils:trace(Tracer, Direction, Msg).
+
+store(_, _, #data{storage = undefined}) -> ok;
+store(MsgSeqNum, Msg, #data{storage = Storage}) ->
+   fix_utils:store(Storage, MsgSeqNum, Msg).
 
 socket_close(Data = #data{socket = Socket}) when is_port(Socket) ->
    gen_tcp:close(Socket),
