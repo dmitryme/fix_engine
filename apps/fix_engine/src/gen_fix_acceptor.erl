@@ -201,7 +201,7 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 
 'DISCONNECTED'(_, Data) ->
    error_logger:error_msg("[~p]: not connected. Do connect first.", [Data#data.session_id]),
-   socket_close(Data#data.socket).
+   socket_close(Data).
 % ================= DISCONNECTED END ==================================================================
 
 % ================= CONNECTED BEGIN ===================================================================
