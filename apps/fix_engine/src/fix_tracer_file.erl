@@ -12,14 +12,7 @@ start_link(SessionCfg = #fix_session_config{tracer = Tracer}) ->
    gen_server:start_link({local, Tracer}, ?MODULE, SessionCfg, []).
 
 init(#fix_session_config{session_id = SessionID, tracer_dir = Dir}) ->
-   case file:make_dir(Dir) of
-      ok ->
-         ok;
-      {error, eexist} ->
-         ok;
-      Error ->
-         exit(Error)
-   end,
+   ok = fix_utils:make_dir(Dir),
    FName = filename:join([Dir, atom_to_list(SessionID) ++ ".tracer"]),
    {ok, FDescr} = file:open(FName, [write, raw, append]),
    error_logger:info_msg("[~p]: tracer file ~p has been opened.", [SessionID, FName]),
