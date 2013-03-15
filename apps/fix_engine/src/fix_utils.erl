@@ -8,9 +8,6 @@
       unow_utc/0,
       now/0,
       unow/0,
-      trace/3,
-      reset/2,
-      store/3,
       make_dir/1]).
 
 list_to_atom(List) ->
@@ -63,15 +60,6 @@ unow() ->
    {{YYYY, M, DD},{HH, MM, SS}} = calendar:now_to_local_time(Now),
    lists:flatten(io_lib:format("~4.10.0B~2.10.0B~2.10.0B-~2.10.0B:~2.10.0B:~2.10.0B.~6.10.0B",
          [YYYY, M, DD, HH, MM, SS, MicroSec])).
-
-trace(Tracer, Direction, Msg) ->
-   gen_server:cast(Tracer, {Direction, fix_utils:unow(), Msg}).
-
-reset(Storage, SessionID) ->
-   gen_server:cast(Storage, {reset, SessionID}).
-
-store(Storage, MsgSeqNum, Msg) ->
-   gen_server:cast(Storage, {store, MsgSeqNum, Msg}).
 
 make_dir(Dir) ->
    case file:make_dir(Dir) of
