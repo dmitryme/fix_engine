@@ -20,7 +20,7 @@
       storage              :: pid(),
       parser               :: #parser{},
       seq_num_out = 1      :: pos_integer(),
-      se_num_in = 1        :: pos_integer(),
+      seq_num_in = 1        :: pos_integer(),
       sender_comp_id       :: string(),
       target_comp_id       :: string(),
       username             :: string(),
@@ -394,16 +394,34 @@ send_fix_message(Msg, Data = #data{seq_num_out = SeqNumOut}) ->
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
    ok = socket_send(Data#data.socket, BinMsg),
    trace(Msg, out, Data),
-   store(SeqNumOut, BinMsg, Data),
-   {ok, Data#data{seq_num_out = SeqNumOut + 1}}.
+   store_msg_out(SeqNumOut, BinMsg, Data).
 
 trace(_, _, #data{tracer = undefined}) -> ok;
 trace(Msg, Direction, #data{tracer = Tracer}) ->
-   fix_utils:trace(Tracer, Direction, Msg).
+   fix_tracer:trace(Tracer, Direction, Msg).
 
-store(_, _, #data{storage = undefined}) -> ok;
-store(MsgSeqNum, Msg, #data{storage = Storage}) ->
-   fix_utils:store(Storage, MsgSeqNum, Msg).
+store_msg_out(SeqNumOut, _, Data = #data{storage = undefined}) ->
+   {ok, Data#data{seq_num_out = SeqNumOut}};
+store_msg_out(SeqNumOut, Msg, Data = #data{storage = Storage}) ->
+   fix_storage:store_msg_out(Storage, SeqNumOut, Msg),
+   {ok, Data#data{seq_num_out = SeqNumOut}}.
+
+store_seq_num_in(SeqNumIn, Data = #data{storage = undefined}) ->
+   {ok, Data#data{seq_num_in = SeqNumIn}};
+store_seq_num_in(SeqNumIn, Data = #data{storage = Storage}) ->
+   fix_storage:store_seq_num_in(Storage, SeqNumIn),
+   {ok, Data#data{seq_num_in = SeqNumIn}}.
+
+get_storage_stat(#data{storage = undefined}) ->
+   {ok, {1, 1}};
+get_storage_stat(#data{storage = Storage}) ->
+   fix_storage:get_stat(Storage).
+
+reset_storage(Data = #data{storage = undefined}) ->
+   {ok, Data#data{seq_num_in = 1, seq_num_out = 1}};
+reset_storage(Data = #data{storage = Storage}) ->
+   fix_storage:reset(Storage),
+   {ok, Data#data{seq_num_in = 1, seq_num_out = 1}}.
 
 socket_close(Data = #data{socket = Socket}) when is_port(Socket) ->
    gen_tcp:close(Socket),
