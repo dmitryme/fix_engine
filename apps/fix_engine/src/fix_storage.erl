@@ -17,4 +17,4 @@ store_seq_num_in(Storage, MsgSeqNum) ->
    gen_server:cast(Storage, {seq_num_in, MsgSeqNum}).
 
 get_stat(Storage) ->
-   get_server:call(Storage, get_stat).
+   gen_server:call(Storage, get_stat).
