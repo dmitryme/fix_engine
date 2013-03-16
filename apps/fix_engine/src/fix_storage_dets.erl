@@ -47,7 +47,8 @@ handle_cast({store, MsgSeqNum, Msg}, State = #state{table_ref = TableRef, seq_nu
 handle_info(_Info, State) ->
    {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{table_ref = TableRef}) ->
+   ok = dets:close(TableRef),
    ok.
 
 code_change(_OldVsn, State, _Extra) ->

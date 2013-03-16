@@ -18,7 +18,8 @@
       socket               :: port() | gen_tcp:socket(),
       tracer               :: pid(),
       storage              :: pid(),
-      parser               :: #parser{},
+      parser_in            :: #parser{},
+      parser_out           :: #parser{},
       seq_num_out          :: pos_integer(),
       seq_num_in           :: pos_integer(),
       sender_comp_id       :: string(),
@@ -83,15 +84,15 @@ start_link(Args = #fix_session_config{type = acceptor, session_id = SessionID}, 
 init(#fix_session_config{session_id = SessionID, module = Module, module_args = MArgs, fix_protocol = Protocol,
       fix_parser_flags = ParserFlags, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
       username = Username, password = Password, tracer = Tracer, storage = Storage}) ->
-   case fix_parser:create(Protocol, [], ParserFlags) of
-      {ok, ParserRef} -> error_logger:info_msg("[~p]: parser [~p] has been created.", [SessionID, fix_parser:get_version(ParserRef)]);
-      {fix_error, ParserRef} -> exit({fix_parser_error, ParserRef})
-   end,
-   Data = #data{module = Module, session_id = SessionID, parser = ParserRef, sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
-         username = Username, password = Password, tracer = Tracer, storage = Storage},
+   {ok, ParserInRef} = create_parser(SessionID, Protocol, [], ParserFlags),
+   {ok, ParserOutRef} = create_parser(SessionID, Protocol, [], ParserFlags),
+   Data = #data{module = Module,
+      session_id = SessionID, parser_in = ParserInRef, parser_out = ParserOutRef,
+      sender_comp_id = SenderCompID, target_comp_id = TargetCompID,
+      username = Username, password = Password, tracer = Tracer, storage = Storage},
    {ok, Data1} = get_storage_stat(Data),
    error_logger:info_msg("[~p]: seq_num_in = ~p, seq_num_out = ~p.", [SessionID, Data1#data.seq_num_in, Data1#data.seq_num_out]),
-   case Module:init(SessionID, ParserRef, MArgs) of
+   case Module:init(SessionID, ParserOutRef, MArgs) of
       {ok, State} ->
          {ok, Data1#data{module_state = State}};
       {ok, State, Timeout} ->
@@ -214,7 +215,7 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    {ok, Data#data{state = 'DISCONNECTED'}};
 
 'CONNECTED'({fix_error, _ErrCode, ErrText}, Data) ->
-   LogoutMsg = create_logout(Data#data.parser, ErrText),
+   LogoutMsg = create_logout(Data#data.parser_out, ErrText),
    {ok, Data1} = send_fix_message(LogoutMsg, Data),
    socket_close(Data1);
 
@@ -235,19 +236,19 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    catch
       throw:{badmatch, {fix_error, _, ErrText}} ->
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, ErrText]),
-         LogoutMsg = create_logout(Data#data.parser, ErrText),
+         LogoutMsg = create_logout(Data#data.parser_out, ErrText),
          {ok, Data6} = send_fix_message(LogoutMsg, Data),
          {ok, Data7} = socket_close(Data6),
          {ok, Data7#data{state = 'CONNECTED'}};
       throw:{error, Reason} ->
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Reason]),
-         LogoutMsg = create_logout(Data#data.parser, Reason),
+         LogoutMsg = create_logout(Data#data.parser_out, Reason),
          {ok, Data6} = send_fix_message(LogoutMsg, Data),
          {ok, Data7} = socket_close(Data6),
          {ok, Data7#data{state = 'CONNECTED'}};
       _:Err ->
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Err]),
-         LogoutMsg = create_logout(Data#data.parser, "Logon failed"),
+         LogoutMsg = create_logout(Data#data.parser_out, "Logon failed"),
          {ok, Data6} = send_fix_message(LogoutMsg, Data),
          {ok, Data7} = socket_close(Data6),
          {ok, Data7#data{state = 'CONNECTED'}}
@@ -257,12 +258,12 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 
 % ================= LOGGED_IN BEGIN ===================================================================
 'LOGGED_IN'(heartbeat, Data) ->
-   {ok, Msg} = fix_parser:create_msg(Data#data.parser, "0"),
+   {ok, Msg} = fix_parser:create_msg(Data#data.parser_out, "0"),
    {ok, Data1} = send_fix_message(Msg, Data),
    restart_heartbeat(Data1);
 
 'LOGGED_IN'(disconnect, Data) ->
-   Msg = create_logout(Data#data.parser, "Explicitly disconnected"),
+   Msg = create_logout(Data#data.parser_out, "Explicitly disconnected"),
    {ok, Data1} = send_fix_message(Msg, Data),
    {ok, Data2} = socket_close(Data1),
    {ok, Data3} = cancel_heartbeat(Data2),
@@ -283,7 +284,7 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    store_seq_num_in(SeqNum, Data);
 
 'LOGGED_IN'(LogoutMsg = #msg{type = "5"}, Data) ->
-   Logout = create_logout(Data#data.parser, "Bye"),
+   Logout = create_logout(Data#data.parser_out, "Bye"),
    {ok, Data1} = send_fix_message(Logout, Data),
    {ok, SeqNum} = fix_parser:get_int32_field(LogoutMsg, ?FIXFieldTag_MsgSeqNum),
    {ok, Data2} = cancel_heartbeat(Data1),
@@ -291,7 +292,7 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 
 'LOGGED_IN'(TestRequestMsg = #msg{type = "1"}, Data) ->
    {ok, TestReqID} = fix_parser:get_string_field(TestRequestMsg, ?FIXFieldTag_TestReqID),
-   {ok, HeartbeatMsg} = fix_parser:create_msg(Data#data.parser, "0"),
+   {ok, HeartbeatMsg} = fix_parser:create_msg(Data#data.parser_out, "0"),
    ok = fix_parser:set_string_field(HeartbeatMsg, ?FIXFieldTag_TestReqID, TestReqID),
    {ok, Data1} = send_fix_message(HeartbeatMsg, Data),
    {ok, Data2} = restart_heartbeat(Data1),
@@ -314,7 +315,12 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 
 'LOGGED_IN'({send_fix, FixMsg}, Data) ->
    {ok, Data1} = send_fix_message(FixMsg, Data),
-   restart_heartbeat(Data1).
+   restart_heartbeat(Data1);
+
+'LOGGED_IN'({fix_error, ErrCode, ErrText}, Data = #data{session_id = SessionID}) ->
+   error_logger:error_msg("[~p]: Error = ~p. Description = ~p.", [SessionID, ErrCode, ErrText]),
+   % TODO: send levelReject here
+   {ok, Data}.
 
 % ================= LOGGED_IN END =====================================================================
 
@@ -343,7 +349,7 @@ apply(Data = #data{session_id = SessionID, state = OldState}, Msg) ->
 parse_binary(<<>>, Data) ->
    {ok, Data};
 parse_binary(Bin, Data = #data{binary = PrefixBin}) ->
-   case fix_parser:binary_to_msg(Data#data.parser, ?FIX_SOH, <<PrefixBin/binary, Bin/binary>>) of
+   case fix_parser:binary_to_msg(Data#data.parser_in, ?FIX_SOH, <<PrefixBin/binary, Bin/binary>>) of
       {ok, Msg, RestBin} ->
          trace(Msg, in, Data),
          Data1 = Data#data{binary = <<>>},
@@ -390,7 +396,7 @@ create_logout(Parser, Text) ->
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_Text, Text),
    Msg.
 
-create_logon(ResetSeqNum, #data{parser = Parser, heartbeat_int = HeartBtInt}) ->
+create_logon(ResetSeqNum, #data{parser_out = Parser, heartbeat_int = HeartBtInt}) ->
    {ok, Msg} = fix_parser:create_msg(Parser, "A"),
    ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_HeartBtInt, HeartBtInt),
    ok = fix_parser:set_char_field(Msg, ?FIXFieldTag_ResetSeqNumFlag, ResetSeqNum),
@@ -453,3 +459,12 @@ socket_controlling_process(Socket, SessionPid) when is_port(Socket) ->
    gen_tcp:controlling_process(Socket, SessionPid);
 socket_controlling_process(_Socket, _SessionPid) ->
    ok.
+
+create_parser(SessionID, Protocol, Attributes, ParserFlags) ->
+   case fix_parser:create(Protocol, Attributes, ParserFlags) of
+      {ok, ParserRef} ->
+         error_logger:info_msg("[~p]: parser [~p] has been created.", [SessionID, fix_parser:get_version(ParserRef)]);
+      {fix_error, ParserRef} ->
+         exit({fix_parser_error, ParserRef})
+   end,
+   {ok, ParserRef}.
