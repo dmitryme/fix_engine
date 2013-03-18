@@ -39,8 +39,8 @@ handle_cast({seq_num_in, MsgSeqNum}, State = #state{table_ref = TableRef, seq_nu
    ok = dets:insert(TableRef, {stat, MsgSeqNum, SeqNumOut}),
    {noreply, State#state{seq_num_in = MsgSeqNum}};
 
-handle_cast({store, MsgSeqNum, Msg}, State = #state{table_ref = TableRef, seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}) ->
-   ok = dets:insert(TableRef, {MsgSeqNum, Msg}),
+handle_cast({store, MsgSeqNum, Type, Msg}, State = #state{table_ref = TableRef, seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}) ->
+   ok = dets:insert(TableRef, {MsgSeqNum, Type, Msg}),
    ok = dets:insert(TableRef, {stat, SeqNumIn, SeqNumOut}),
    {noreply, State#state{seq_num_out = MsgSeqNum}};
 
@@ -48,8 +48,8 @@ handle_cast({resend, From, BeginSeqNo, EndSeqNo},
       State = #state{session_id = SessionID, table_ref = TableRef, seq_num_out = SeqNumOut}) ->
    EndSeqNo1 = if (EndSeqNo == 0) -> SeqNumOut; true -> EndSeqNo end,
    error_logger:info_msg("[~p]: try to find messages [~p,~p].", [SessionID, BeginSeqNo, EndSeqNo1]),
-   UnorderedMsgs = dets:select(TableRef,  [{{'$1', '$2'}, [{'>=', '$1', BeginSeqNo},{'=<', '$1', EndSeqNo1}], [{{'$1',
-                     '$2'}}]}]),
+   UnorderedMsgs = dets:select(TableRef,  [{{'$1', '_', '_'}, [
+               {'>=', '$1', BeginSeqNo},{'=<', '$1', EndSeqNo1}, {'=/=', '$1', stat}], [{{'$_'}}]}]),
    Msgs = lists:sort(UnorderedMsgs),
    error_logger:info_msg("[~p]: ~p messages will be resent.", [SessionID, length(Msgs)]),
    From ! {resend, Msgs},
