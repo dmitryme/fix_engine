@@ -170,17 +170,18 @@ handle_info({tcp_closed, Socket}, Data = #data{socket = Socket}) ->
 handle_info({timeout, _, heartbeat}, Data) ->
    {ok, Data1} = ?MODULE:apply(Data, heartbeat),
    {noreply, Data1};
-handle_info({resend, {_MsgSeqNum, BinMsg}}, Data = #data{module = Module, module_state = MState}) ->
-   case fix_parser:binary_to_msg(Data#data.parser_out, ?FIX_SOH, BinMsg) of
-      {ok, Msg, <<>>} -> ok
-   end,
-   case Module:handle_resend(Msg, MState) of
-      {true, MState1} ->
-         {ok, Data1} = ?MODULE:apply(Data, {resend, Msg});
-      {false, MState1} ->
-         Data1 = Data
-   end,
-   {noreply, Data1#data{module_state = MState1}};
+handle_info({resend, Msgs}, Data) ->
+   %case fix_parser:binary_to_msg(Data#data.parser_out, ?FIX_SOH, BinMsg) of
+      %{ok, Msg, <<>>} -> ok
+   %end,
+   %case Module:handle_resend(Msg, MState) of
+      %{true, MState1} ->
+         %{ok, Data1} = ?MODULE:apply(Data, {resend, Msg});
+      %{false, MState1} ->
+         %Data1 = Data
+   %end,
+   %{noreply, Data1#data{module_state = MState1}};
+   {noreply, Data};
 handle_info(Info, Data = #data{module = Module, module_state = MState}) ->
    case Module:handle_info(Info, MState) of
       {noreply, NewMState} ->
