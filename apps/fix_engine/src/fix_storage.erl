@@ -4,7 +4,8 @@
       reset/1,
       store_msg_out/3,
       store_seq_num_in/2,
-      get_stat/1
+      get_stat/1,
+      resend/3
       ]).
 
 reset(Storage) ->
@@ -18,3 +19,6 @@ store_seq_num_in(Storage, MsgSeqNum) ->
 
 get_stat(Storage) ->
    gen_server:call(Storage, get_stat).
+
+resend(Storage, BeginSeqNo, EndSeqNo) ->
+   gen_server:cast(Storage, {resend, self(), BeginSeqNo, EndSeqNo}).
