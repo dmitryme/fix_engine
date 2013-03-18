@@ -181,7 +181,8 @@ handle_info({resend, Msgs}, Data) ->
          %Data1 = Data
    %end,
    %{noreply, Data1#data{module_state = MState1}};
-   {noreply, Data};
+   {ok, Data1} = resend(Msgs, Data),
+   {noreply, Data1};
 handle_info(Info, Data = #data{module = Module, module_state = MState}) ->
    case Module:handle_info(Info, MState) of
       {noreply, NewMState} ->
@@ -436,16 +437,16 @@ send_fix_message(Msg, Data = #data{seq_num_out = SeqNumOut}) ->
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
    ok = socket_send(Data#data.socket, BinMsg),
    trace(Msg, out, Data),
-   store_msg_out(NewSeqNumOut, BinMsg, Data).
+   store_msg_out(NewSeqNumOut, Msg#msg.type, BinMsg, Data).
 
 trace(_, _, #data{tracer = undefined}) -> ok;
 trace(Msg, Direction, #data{tracer = Tracer}) ->
    fix_tracer:trace(Tracer, Direction, Msg).
 
-store_msg_out(SeqNumOut, _, Data = #data{storage = undefined}) ->
+store_msg_out(SeqNumOut, _Type, _, Data = #data{storage = undefined}) ->
    {ok, Data#data{seq_num_out = SeqNumOut}};
-store_msg_out(SeqNumOut, Msg, Data = #data{storage = Storage}) ->
-   fix_storage:store_msg_out(Storage, SeqNumOut, Msg),
+store_msg_out(SeqNumOut, Type, Msg, Data = #data{storage = Storage}) ->
+   fix_storage:store_msg_out(Storage, SeqNumOut, Type, Msg),
    {ok, Data#data{seq_num_out = SeqNumOut}}.
 
 store_seq_num_in(SeqNumIn, Data = #data{storage = undefined}) ->
@@ -492,3 +493,28 @@ create_parser(SessionID, Protocol, Attributes, ParserFlags) ->
          exit({fix_parser_error, ParserRef})
    end,
    {ok, ParserRef}.
+
+resend(_, Data) ->
+   {ok, Data}.
+
+%resend([], Data) ->
+   %{ok, Data};
+%resend([{MsgSeqNum, BinMsg}|Msgs], {0, _}, Data) ->
+   %case fix_parser:binary_to_msg(Data#data.parser_out, ?FIX_SOH, BinMsg) of
+      %{ok, Msg = #msg{type = T}, <<>>} when T == "0" orelse
+                                            %T == "A" orelse
+                                            %T == "5" orelse
+                                            %T == "3" orelse
+                                            %T == "2" orelse
+                                            %T == "4" orelse
+                                            %T == "1" ->
+      %resend(Msgs, {MsgSeqNum, 0}, Data);
+      %{ok, Msg, <<>>} ->
+         %case Module:handle_resend(Msg, MState) of
+            %{true, MState1} ->
+               %{ok, Data1} = ?MODULE:apply(Data, {resend, Msg});
+            %{false, MState1} ->
+               %Data1 = Data
+         %end,
+   %end,
+   %%{noreply, Data1#data{module_state = MState1}};
