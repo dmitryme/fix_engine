@@ -6,7 +6,7 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {table_ref, seq_num_in, seq_num_out}).
+-record(state, {session_id, table_ref, seq_num_in, seq_num_out}).
 
 start_link(SessionCfg = #fix_session_config{storage = Storage}) ->
    gen_server:start_link({local, Storage}, ?MODULE, SessionCfg, []).
@@ -25,7 +25,7 @@ init(#fix_session_config{session_id = SessionID, storage_dir = Dir, storage_flag
          SeqNumOut = 0,
          ok = dets:insert(TableRef, {stat, SeqNumIn, SeqNumOut})
    end,
-   {ok, #state{table_ref = TableRef, seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}}.
+   {ok, #state{session_id = SessionID, table_ref = TableRef, seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}}.
 
 handle_call(get_stat, _From, State) ->
    {reply, {ok, {State#state.seq_num_in, State#state.seq_num_out}}, State}.
@@ -42,7 +42,18 @@ handle_cast({seq_num_in, MsgSeqNum}, State = #state{table_ref = TableRef, seq_nu
 handle_cast({store, MsgSeqNum, Msg}, State = #state{table_ref = TableRef, seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}) ->
    ok = dets:insert(TableRef, {MsgSeqNum, Msg}),
    ok = dets:insert(TableRef, {stat, SeqNumIn, SeqNumOut}),
-   {noreply, State#state{seq_num_out = MsgSeqNum}}.
+   {noreply, State#state{seq_num_out = MsgSeqNum}};
+
+handle_cast({resend, From, BeginSeqNo, EndSeqNo},
+      State = #state{session_id = SessionID, table_ref = TableRef, seq_num_out = SeqNumOut}) ->
+   EndSeqNo1 = if (EndSeqNo == 0) -> SeqNumOut; true -> EndSeqNo end,
+   error_logger:info_msg("[~p]: try to find messages [~p,~p].", [SessionID, BeginSeqNo, EndSeqNo1]),
+   UnorderedMsgs = dets:select(TableRef,  [{{'$1', '$2'}, [{'>=', '$1', BeginSeqNo},{'=<', '$1', EndSeqNo1}], [{{'$1',
+                     '$2'}}]}]),
+   Msgs = lists:sort(UnorderedMsgs),
+   error_logger:info_msg("[~p]: ~p messages will be resent.", [SessionID, length(Msgs)]),
+   lists:foreach(fun(Msg) -> From ! {resend, Msg} end, Msgs),
+   {noreply, State}.
 
 handle_info(_Info, State) ->
    {noreply, State}.
