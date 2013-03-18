@@ -46,6 +46,9 @@ handle_fix(FixMsg, State) ->
    error_logger:error_msg("Unsupported msg received [~p]", [FixMsg#msg.type]),
    {noreply, State}.
 
+handle_resend(FixMsg, State) ->
+   {true, State}.
+
 terminate(_Reason, _State) ->
    ok.
 
