@@ -4,7 +4,17 @@
 -include_lib("fix_engine/include/fix_fields.hrl").
 -include_lib("fix_engine/include/fix_engine_config.hrl").
 
--export([start_link/1, init/3, handle_call/3, handle_cast/2, handle_info/2, handle_fix/2, terminate/2, code_change/3]).
+-export([
+      start_link/1,
+      init/3,
+      handle_call/3,
+      handle_cast/2,
+      handle_info/2,
+      handle_fix/2,
+      handle_resend/2,
+      terminate/2,
+      code_change/3
+   ]).
 
 -behaviour(gen_fix_acceptor).
 
@@ -46,7 +56,7 @@ handle_fix(FixMsg, State) ->
    error_logger:error_msg("Unsupported msg received [~p]", [FixMsg#msg.type]),
    {noreply, State}.
 
-handle_resend(FixMsg, State) ->
+handle_resend(_FixMsg, State) ->
    {true, State}.
 
 terminate(_Reason, _State) ->
