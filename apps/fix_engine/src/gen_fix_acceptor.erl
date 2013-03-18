@@ -55,6 +55,8 @@
 -callback handle_fix(FIXMessage :: #msg{}, State :: term()) ->
    {reply, FIXMessage :: #msg{}, NewState :: term()} |
    {noreply, NewState :: term()}.
+-callback handle_resend(FIXMessage :: #msg{}, State :: term()) ->
+   {true, NewState :: term()} | {false, NewState :: term()}.
 
 set_socket(SessionPid, Socket) ->
    case gen_server:call(SessionPid, {gen_fix_acceptor, {set_socket, Socket}}) of
@@ -168,6 +170,17 @@ handle_info({tcp_closed, Socket}, Data = #data{socket = Socket}) ->
 handle_info({timeout, _, heartbeat}, Data) ->
    {ok, Data1} = ?MODULE:apply(Data, heartbeat),
    {noreply, Data1};
+handle_info({resend, {_MsgSeqNum, BinMsg}}, Data = #data{module = Module, module_state = MState}) ->
+   case fix_parser:binary_to_msg(Data#data.parser_out, ?FIX_SOH, BinMsg) of
+      {ok, Msg, <<>>} -> ok
+   end,
+   case Module:handle_resend(Msg, MState) of
+      {true, MState1} ->
+         {ok, Data1} = ?MODULE:apply(Data, {resend, Msg});
+      {false, MState1} ->
+         Data1 = Data
+   end,
+   {noreply, Data1#data{module_state = MState1}};
 handle_info(Info, Data = #data{module = Module, module_state = MState}) ->
    case Module:handle_info(Info, MState) of
       {noreply, NewMState} ->
@@ -299,6 +312,12 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    {ok, SeqNum} = fix_parser:get_int32_field(TestRequestMsg, ?FIXFieldTag_MsgSeqNum),
    store_seq_num_in(SeqNum, Data2);
 
+'LOGGED_IN'(ResendRequestMsg = #msg{type = "2"}, Data = #data{storage = Storage}) ->
+   {ok, BeginSeqNo} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_BeginSeqNo),
+   {ok, EndSeqNo} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_EndSeqNo),
+   fix_storage:resend(Storage, BeginSeqNo, EndSeqNo),
+   {ok, Data};
+
 'LOGGED_IN'(Msg = #msg{}, Data = #data{module = Module, module_state = MState}) ->
    {ok, SeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
    {ok, Data1} = store_seq_num_in(SeqNum, Data),
@@ -316,6 +335,10 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 'LOGGED_IN'({send_fix, FixMsg}, Data) ->
    {ok, Data1} = send_fix_message(FixMsg, Data),
    restart_heartbeat(Data1);
+
+'LOGGED_IN'({resend, _FixMsg}, Data) ->
+   %TODO: do resend here
+   {ok, Data};
 
 'LOGGED_IN'({fix_error, ErrCode, ErrText}, Data = #data{session_id = SessionID}) ->
    error_logger:error_msg("[~p]: Error = ~p. Description = ~p.", [SessionID, ErrCode, ErrText]),
