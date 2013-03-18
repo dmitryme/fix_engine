@@ -52,7 +52,7 @@ handle_cast({resend, From, BeginSeqNo, EndSeqNo},
                      '$2'}}]}]),
    Msgs = lists:sort(UnorderedMsgs),
    error_logger:info_msg("[~p]: ~p messages will be resent.", [SessionID, length(Msgs)]),
-   lists:foreach(fun(Msg) -> From ! {resend, Msg} end, Msgs),
+   From ! {resend, Msgs},
    {noreply, State}.
 
 handle_info(_Info, State) ->
