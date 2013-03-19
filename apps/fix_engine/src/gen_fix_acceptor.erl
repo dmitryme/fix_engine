@@ -12,7 +12,8 @@
 
 -export([apply/2, 'DISCONNECTED'/2, 'CONNECTED'/2, 'LOGGED_IN'/2]).
 
--record(data, {module      :: atom(),
+-record(data, {
+      module      :: atom(),
       module_state         :: term(),
       session_id           :: atom(),
       socket               :: port() | gen_tcp:socket(),
@@ -29,7 +30,8 @@
       state = 'DISCONNECTED' :: atom(),
       heartbeat_int        :: pos_integer(),
       timer_ref            :: reference(),
-      binary = <<>>        :: binary()}).
+      binary = <<>>        :: binary()
+   }).
 
 -callback init(atom(), #parser{}, term()) ->
     {ok, State :: term()} | {ok, State :: term(), timeout() | hibernate} |
@@ -171,16 +173,6 @@ handle_info({timeout, _, heartbeat}, Data) ->
    {ok, Data1} = ?MODULE:apply(Data, heartbeat),
    {noreply, Data1};
 handle_info({resend, Msgs}, Data) ->
-   %case fix_parser:binary_to_msg(Data#data.parser_out, ?FIX_SOH, BinMsg) of
-      %{ok, Msg, <<>>} -> ok
-   %end,
-   %case Module:handle_resend(Msg, MState) of
-      %{true, MState1} ->
-         %{ok, Data1} = ?MODULE:apply(Data, {resend, Msg});
-      %{false, MState1} ->
-         %Data1 = Data
-   %end,
-   %{noreply, Data1#data{module_state = MState1}};
    {ok, Data1} = resend(Msgs, Data),
    {noreply, Data1};
 handle_info(Info, Data = #data{module = Module, module_state = MState}) ->
@@ -338,7 +330,14 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    {ok, Data1} = send_fix_message(FixMsg, Data),
    restart_heartbeat(Data1);
 
-'LOGGED_IN'({resend, _FixMsg}, Data) ->
+'LOGGED_IN'({skip_resend, SkipFrom, SkipTo}, Data = #data{session_id = SessionID}) ->
+   error_logger:info_msg("[~p]: [~p, ~p] message(s) will be skipped.", [SessionID, SkipFrom, SkipTo]),
+   %TODO: do skip here
+   {ok, Data};
+
+'LOGGED_IN'({resend, FixMsg}, Data = #data{session_id = SessionID}) ->
+   {ok, MsgSeqNum} = fix_parser:get_int32_field(FixMsg, ?FIXFieldTag_MsgSeqNum),
+   error_logger:info_msg("[~p]: ~s message with MsgSeqNum = ~p will be resent.", [SessionID, FixMsg#msg.type, MsgSeqNum]),
    %TODO: do resend here
    {ok, Data};
 
@@ -494,27 +493,44 @@ create_parser(SessionID, Protocol, Attributes, ParserFlags) ->
    end,
    {ok, ParserRef}.
 
-resend(_, Data) ->
-   {ok, Data}.
+resend(Msgs, Data) ->
+   resend(Msgs, {0, 0}, Data).
 
-%resend([], Data) ->
-   %{ok, Data};
-%resend([{MsgSeqNum, BinMsg}|Msgs], {0, _}, Data) ->
-   %case fix_parser:binary_to_msg(Data#data.parser_out, ?FIX_SOH, BinMsg) of
-      %{ok, Msg = #msg{type = T}, <<>>} when T == "0" orelse
-                                            %T == "A" orelse
-                                            %T == "5" orelse
-                                            %T == "3" orelse
-                                            %T == "2" orelse
-                                            %T == "4" orelse
-                                            %T == "1" ->
-      %resend(Msgs, {MsgSeqNum, 0}, Data);
-      %{ok, Msg, <<>>} ->
-         %case Module:handle_resend(Msg, MState) of
-            %{true, MState1} ->
-               %{ok, Data1} = ?MODULE:apply(Data, {resend, Msg});
-            %{false, MState1} ->
-               %Data1 = Data
-         %end,
-   %end,
-   %%{noreply, Data1#data{module_state = MState1}};
+resend([], {0, 0}, Data) ->
+   {ok, Data};
+
+resend([], {SkipFrom, SkipTo}, Data) ->
+   ?MODULE:apply(Data, {skip_resend, SkipFrom, SkipTo});
+
+resend([{SeqNum, Type, _BinMsg}|Rest], {0, 0}, Data)
+      when Type == "0" orelse Type == "A" orelse Type == "5" orelse
+           Type == "3" orelse Type == "2" orelse Type == "4" orelse Type == "1" ->
+   resend(Rest, {SeqNum, SeqNum}, Data);
+
+resend([{SeqNum, Type, _BinMsg}|Rest], {SkipFrom, _}, Data)
+      when Type == "0" orelse Type == "A" orelse Type == "5" orelse
+           Type == "3" orelse Type == "2" orelse Type == "4" orelse Type == "1" ->
+   resend(Rest, {SkipFrom, SeqNum}, Data);
+
+resend([{SeqNum, _Type, BinMsg}|Rest], {0, 0}, Data = #data{module = Module, module_state = MState}) ->
+   {ok, Msg, <<>>} = fix_parser:binary_to_msg(Data#data.parser_out, ?FIX_SOH, BinMsg),
+   case Module:handle_resend(Msg, MState) of
+      {true, MState1} ->
+         {ok, Data1} = ?MODULE:apply(Data, {resend, Msg}),
+         SkipFrom = SkipTo = 0;
+      {false, MState1} ->
+         Data1 = Data,
+         SkipFrom = SkipTo = SeqNum
+   end,
+   resend(Rest, {SkipFrom, SkipTo}, Data1#data{module_state = MState1});
+
+resend([{SeqNum, _Type, BinMsg}|Rest], {SkipFrom, SkipTo}, Data = #data{module = Module, module_state = MState}) ->
+   {ok, Msg, <<>>} = fix_parser:binary_to_msg(Data#data.parser_out, ?FIX_SOH, BinMsg),
+   case Module:handle_resend(Msg, MState) of
+      {true, MState1} ->
+         {ok, Data1} = ?MODULE:apply(Data, {skip_resend, SkipFrom, SkipTo}),
+         {ok, Data2} = ?MODULE:apply(Data1, {resend, Msg});
+      {false, MState1} ->
+         {ok, Data2} = ?MODULE:apply(Data, {skip_resend, SkipFrom, SeqNum})
+   end,
+   resend(Rest, {0, 0}, Data2#data{module_state = MState1}).
