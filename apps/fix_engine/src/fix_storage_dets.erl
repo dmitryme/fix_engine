@@ -49,7 +49,7 @@ handle_cast({resend, From, BeginSeqNo, EndSeqNo},
    EndSeqNo1 = if (EndSeqNo == 0) -> SeqNumOut; true -> EndSeqNo end,
    error_logger:info_msg("[~p]: try to find messages [~p,~p].", [SessionID, BeginSeqNo, EndSeqNo1]),
    UnorderedMsgs = dets:select(TableRef,  [{{'$1', '_', '_'}, [
-               {'>=', '$1', BeginSeqNo},{'=<', '$1', EndSeqNo1}, {'=/=', '$1', stat}], [{{'$_'}}]}]),
+               {'>=', '$1', BeginSeqNo},{'=<', '$1', EndSeqNo1}, {'=/=', '$1', stat}], ['$_']}]),
    Msgs = lists:sort(UnorderedMsgs),
    error_logger:info_msg("[~p]: ~p messages will be resent.", [SessionID, length(Msgs)]),
    From ! {resend, Msgs},
