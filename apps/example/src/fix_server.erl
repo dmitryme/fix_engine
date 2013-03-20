@@ -12,6 +12,7 @@
       handle_info/2,
       handle_fix/2,
       handle_resend/2,
+      handle_error/3,
       terminate/2,
       code_change/3
    ]).
@@ -58,6 +59,10 @@ handle_fix(FixMsg, State) ->
 
 handle_resend(_FixMsg, State) ->
    {true, State}.
+
+handle_error(E, _Msg, State) ->
+   error_logger:error_msg("ERROR: ~p", [E]),
+   {ok, State}.
 
 terminate(_Reason, _State) ->
    ok.
