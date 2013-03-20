@@ -223,6 +223,9 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 'CONNECTED'(disconnect, Data) ->
    {ok, Data#data{state = 'DISCONNECTED'}};
 
+'CONNECTED'(tcp_closed, Data) ->
+   {ok, Data#data{socket = undefined}};
+
 'CONNECTED'({fix_error, _ErrCode, ErrText}, Data) ->
    LogoutMsg = create_logout(Data#data.parser_out, ErrText),
    {ok, Data1} = send_fix_message(LogoutMsg, Data),
@@ -289,15 +292,16 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    {ok, Data2#data{state = 'CONNECTED'}};
 
 'LOGGED_IN'(HeartbeatMsg = #msg{type = "0"}, Data) ->
-   {ok, SeqNum} = fix_parser:get_int32_field(HeartbeatMsg, ?FIXFieldTag_MsgSeqNum),
-   store_seq_num_in(SeqNum, Data);
+   {ok, MsgSeqNum} = fix_parser:get_int32_field(HeartbeatMsg, ?FIXFieldTag_MsgSeqNum),
+   {ok, Data1} = check_gap(MsgSeqNum, Data),
+   store_seq_num_in(MsgSeqNum, Data1);
 
 'LOGGED_IN'(LogoutMsg = #msg{type = "5"}, Data) ->
    Logout = create_logout(Data#data.parser_out, "Bye"),
    {ok, Data1} = send_fix_message(Logout, Data),
-   {ok, SeqNum} = fix_parser:get_int32_field(LogoutMsg, ?FIXFieldTag_MsgSeqNum),
+   {ok, MsgSeqNum} = fix_parser:get_int32_field(LogoutMsg, ?FIXFieldTag_MsgSeqNum),
    {ok, Data2} = cancel_heartbeat(Data1),
-   store_seq_num_in(SeqNum, Data2);
+   store_seq_num_in(MsgSeqNum, Data2);
 
 'LOGGED_IN'(TestRequestMsg = #msg{type = "1"}, Data) ->
    {ok, TestReqID} = fix_parser:get_string_field(TestRequestMsg, ?FIXFieldTag_TestReqID),
@@ -305,27 +309,31 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    ok = fix_parser:set_string_field(HeartbeatMsg, ?FIXFieldTag_TestReqID, TestReqID),
    {ok, Data1} = send_fix_message(HeartbeatMsg, Data),
    {ok, Data2} = restart_heartbeat(Data1),
-   {ok, SeqNum} = fix_parser:get_int32_field(TestRequestMsg, ?FIXFieldTag_MsgSeqNum),
-   store_seq_num_in(SeqNum, Data2);
+   {ok, MsgSeqNum} = fix_parser:get_int32_field(TestRequestMsg, ?FIXFieldTag_MsgSeqNum),
+   {ok, Data3} = check_gap(MsgSeqNum, Data2),
+   store_seq_num_in(MsgSeqNum, Data3);
 
 'LOGGED_IN'(ResendRequestMsg = #msg{type = "2"}, Data = #data{storage = Storage}) ->
+   {ok, MsgSeqNum} = fix_parsr:get_int32_field(ResendRequestMsg, ?FIXFieldTag_MsgSeqNum),
    {ok, BeginSeqNo} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_BeginSeqNo),
    {ok, EndSeqNo} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_EndSeqNo),
    fix_storage:resend(Storage, BeginSeqNo, EndSeqNo),
-   {ok, Data};
+   {ok, Data1} = check_gap(MsgSeqNum, Data),
+   store_seq_num_in(MsgSeqNum, Data1);
 
 'LOGGED_IN'(Msg = #msg{}, Data = #data{module = Module, module_state = MState}) ->
-   {ok, SeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
-   {ok, Data1} = store_seq_num_in(SeqNum, Data),
+   {ok, MsgSeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
+   {ok, Data1} = check_gap(MsgSeqNum, Data),
+   {ok, Data2} = store_seq_num_in(MsgSeqNum, Data1),
    case Module:handle_fix(Msg, MState) of
       {reply, ReplyMsg = #msg{}, NewMState} ->
-         {ok, Data2} = send_fix_message(ReplyMsg, Data),
-         {ok, Data3} = restart_heartbeat(Data2),
-         {ok, Data3#data{module_state = NewMState}};
+         {ok, Data3} = send_fix_message(ReplyMsg, Data2),
+         {ok, Data4} = restart_heartbeat(Data3),
+         {ok, Data4#data{module_state = NewMState}};
       {noreply, NewMState} ->
-         {ok, Data1#data{module_state = NewMState}};
+         {ok, Data2#data{module_state = NewMState}};
       Reply ->
-         {stop, {bad_return_value, Reply}, Data1}
+         {stop, {bad_return_value, Reply}, Data2}
    end;
 
 'LOGGED_IN'({send_fix, FixMsg}, Data) ->
@@ -559,3 +567,6 @@ resend([{SeqNum, _Type, BinMsg}|Rest], {SkipFrom, SkipTo}, Data = #data{module =
          {ok, Data2} = ?MODULE:apply(Data, {skip_resend, SkipFrom, SeqNum})
    end,
    resend(Rest, {0, 0}, Data2#data{module_state = MState1}).
+
+check_gap(_MsgSeqNum, Data) ->
+   {ok, Data}.
