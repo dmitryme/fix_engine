@@ -59,6 +59,8 @@
    {noreply, NewState :: term()}.
 -callback handle_resend(FIXMessage :: #msg{}, State :: term()) ->
    {true, NewState :: term()} | {false, NewState :: term()}.
+-callback handle_error({Error :: atom(), Reason :: term()}, FIXMessage :: #msg{}, State :: term()) ->
+   {ok, NewState :: term()}.
 
 set_socket(SessionPid, Socket) ->
    case gen_server:call(SessionPid, {gen_fix_acceptor, {set_socket, Socket}}) of
@@ -330,16 +332,19 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    {ok, Data1} = send_fix_message(FixMsg, Data),
    restart_heartbeat(Data1);
 
-'LOGGED_IN'({skip_resend, SkipFrom, SkipTo}, Data = #data{session_id = SessionID}) ->
+'LOGGED_IN'({skip_resend, SkipFrom, SkipTo}, Data = #data{parser_out = Parser, session_id = SessionID}) ->
    error_logger:info_msg("[~p]: [~p, ~p] message(s) will be skipped.", [SessionID, SkipFrom, SkipTo]),
-   %TODO: do skip here
-   {ok, Data};
+   {ok, SeqReset} = fix_parser:create_msg(Parser, "4"),
+   ok = fix_parser:set_char_field(SeqReset, ?FIXFieldTag_PossDupFlag, $Y),
+   ok = fix_parser:set_char_field(SeqReset, ?FIXFieldTag_GapFillFlag, $Y),
+   ok = fix_parser:set_int32_field(SeqReset, ?FIXFieldTag_NewSeqNo, SkipTo + 1),
+   resend_fix_message(SkipFrom, SeqReset, Data);
 
 'LOGGED_IN'({resend, FixMsg}, Data = #data{session_id = SessionID}) ->
    {ok, MsgSeqNum} = fix_parser:get_int32_field(FixMsg, ?FIXFieldTag_MsgSeqNum),
-   error_logger:info_msg("[~p]: ~s message with MsgSeqNum = ~p will be resent.", [SessionID, FixMsg#msg.type, MsgSeqNum]),
-   %TODO: do resend here
-   {ok, Data};
+   error_logger:info_msg("[~p]: ~p message with MsgSeqNum = ~p will be resent.", [SessionID, FixMsg#msg.type, MsgSeqNum]),
+   ok = fix_parser:set_char_field(FixMsg, ?FIXFieldTag_PossDupFlag, $Y),
+   resend_fix_message(MsgSeqNum, FixMsg, Data);
 
 'LOGGED_IN'({fix_error, ErrCode, ErrText}, Data = #data{session_id = SessionID}) ->
    error_logger:error_msg("[~p]: Error = ~p. Description = ~p.", [SessionID, ErrCode, ErrText]),
@@ -427,16 +432,36 @@ create_logon(ResetSeqNum, #data{parser_out = Parser, heartbeat_int = HeartBtInt}
    ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_EncryptMethod, 0),
    Msg.
 
-send_fix_message(Msg, Data = #data{seq_num_out = SeqNumOut}) ->
+resend_fix_message(MsgSeqNum, Msg, Data) ->
+   ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SenderCompID, Data#data.sender_comp_id),
+   ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TargetCompID, Data#data.target_comp_id),
+   ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, MsgSeqNum),
+   ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SendingTime, fix_utils:now_utc()),
+   {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
+   case socket_send(Data#data.socket, BinMsg) of
+      ok ->
+         ok;
+      {error, Reason} ->
+         error_logger:error_msg("[~p]: unable to resend. Error = ~p.", [Data#data.session_id, Reason])
+   end,
+   trace(Msg, out, Data),
+   {ok, Data}.
+
+send_fix_message(Msg, Data = #data{module = Module, module_state = MState, seq_num_out = SeqNumOut}) ->
    NewSeqNumOut = SeqNumOut + 1,
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SenderCompID, Data#data.sender_comp_id),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TargetCompID, Data#data.target_comp_id),
    ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, NewSeqNumOut),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SendingTime, fix_utils:now_utc()),
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
-   ok = socket_send(Data#data.socket, BinMsg),
-   trace(Msg, out, Data),
-   store_msg_out(NewSeqNumOut, Msg#msg.type, BinMsg, Data).
+   case socket_send(Data#data.socket, BinMsg) of
+      ok ->
+         trace(Msg, out, Data),
+         store_msg_out(NewSeqNumOut, Msg#msg.type, BinMsg, Data);
+      {error, Reason} ->
+         {ok, MState1} = Module:handle_error({unable_to_send, Reason}, Msg, MState),
+         {ok, Data#data{module_state = MState1}}
+   end.
 
 trace(_, _, #data{tracer = undefined}) -> ok;
 trace(Msg, Direction, #data{tracer = Tracer}) ->
@@ -504,12 +529,12 @@ resend([], {SkipFrom, SkipTo}, Data) ->
 
 resend([{SeqNum, Type, _BinMsg}|Rest], {0, 0}, Data)
       when Type == "0" orelse Type == "A" orelse Type == "5" orelse
-           Type == "3" orelse Type == "2" orelse Type == "4" orelse Type == "1" ->
+           Type == "2" orelse Type == "4" orelse Type == "1" ->
    resend(Rest, {SeqNum, SeqNum}, Data);
 
 resend([{SeqNum, Type, _BinMsg}|Rest], {SkipFrom, _}, Data)
       when Type == "0" orelse Type == "A" orelse Type == "5" orelse
-           Type == "3" orelse Type == "2" orelse Type == "4" orelse Type == "1" ->
+           Type == "2" orelse Type == "4" orelse Type == "1" ->
    resend(Rest, {SkipFrom, SeqNum}, Data);
 
 resend([{SeqNum, _Type, BinMsg}|Rest], {0, 0}, Data = #data{module = Module, module_state = MState}) ->
