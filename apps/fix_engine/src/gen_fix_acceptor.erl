@@ -223,47 +223,56 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 'CONNECTED'(disconnect, Data) ->
    {ok, Data#data{state = 'DISCONNECTED'}};
 
-'CONNECTED'(tcp_closed, Data) ->
-   {ok, Data#data{socket = undefined}};
-
 'CONNECTED'({fix_error, _ErrCode, ErrText}, Data) ->
-   LogoutMsg = create_logout(Data#data.parser_out, ErrText),
-   {ok, Data1} = send_fix_message(LogoutMsg, Data),
+   {ok, LogoutMsg} = create_logout(Data#data.parser_out, ErrText),
+   {ok, Data1} = send_fix_message([LogoutMsg], Data),
    socket_close(Data1);
 
-'CONNECTED'(Msg, Data = #data{session_id = SessionID, state = 'CONNECTED'}) ->
+'CONNECTED'(Msg, Data = #data{session_id = SessionID, seq_num_in = SeqNumIn, state = 'CONNECTED'}) ->
    error_logger:info_msg("[~p]: message [~p] received.", [Data#data.session_id, Msg#msg.type]),
    try
       validate_logon(Msg, Data#data.username, Data#data.password),
       {ok, HeartBtInt} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_HeartBtInt),
       {ok, ResetSeqNum} = fix_parser:get_char_field(Msg, ?FIXFieldTag_ResetSeqNumFlag, $N),
-      {ok, SeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
-      {ok, Data1} = if ResetSeqNum == $Y -> reset_storage(Data); true -> {ok, Data} end,
-      Data2 = Data1#data{heartbeat_int = HeartBtInt},
-      LogonReply = create_logon(ResetSeqNum, Data2),
-      {ok, Data3} = send_fix_message(LogonReply, Data2),
-      {ok, Data4} = restart_heartbeat(Data3),
-      {ok, Data5} = store_seq_num_in(SeqNum, Data4),
-      {ok, Data5#data{state = 'LOGGED_IN'}}
+      {ok, MsgSeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
+      {ok, PossDupFlag} = fix_parser:get_char_field(Msg, ?FIXFieldTag_PossDupFlag, $N),
+      Data1 = Data#data{heartbeat_int = HeartBtInt},
+      case ResetSeqNum == $Y of
+         true ->
+            {ok, Data2} = reset_storage(Data1),
+            {ok, LogonReply} = create_logon(ResetSeqNum, Data2),
+            {ok, Data3} = send_fix_message([LogonReply], Data2),
+            {ok, Data4} = restart_heartbeat(Data3),
+            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data4);
+         false when MsgSeqNum < SeqNumIn andalso PossDupFlag == $N ->
+            DataRes = Data1,
+            throw({error, io_lib:format("MsgSeqNum too low, expecting ~p but received ~p", [SeqNumIn, MsgSeqNum])});
+         false when MsgSeqNum > SeqNumIn ->
+            {ok, LogonReply} = create_logon(ResetSeqNum, Data1),
+            {ok, ResendRequest} = create_resend(SeqNumIn + 1, MsgSeqNum - 1, Data1),
+            {ok, Data2} = send_fix_message([LogonReply, ResendRequest], Data1),
+            {ok, Data3} = restart_heartbeat(Data2),
+            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data3);
+         false ->
+            {ok, LogonReply} = create_logon(ResetSeqNum, Data1),
+            {ok, Data2} = send_fix_message([LogonReply], Data1),
+            {ok, Data3} = restart_heartbeat(Data2),
+            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data3)
+      end,
+      {ok, DataRes#data{state = 'LOGGED_IN'}}
    catch
-      throw:{badmatch, {fix_error, _, ErrText}} ->
-         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, ErrText]),
-         LogoutMsg = create_logout(Data#data.parser_out, ErrText),
-         {ok, Data6} = send_fix_message(LogoutMsg, Data),
-         {ok, Data7} = socket_close(Data6),
-         {ok, Data7#data{state = 'CONNECTED'}};
+      throw:{badmatch, {fix_error, _, Reason}} ->
+         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Reason]),
+         {ok, Data100} = reject_logon(Data, Reason),
+         {ok, Data100#data{state = 'CONNECTED'}};
       throw:{error, Reason} ->
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Reason]),
-         LogoutMsg = create_logout(Data#data.parser_out, Reason),
-         {ok, Data6} = send_fix_message(LogoutMsg, Data),
-         {ok, Data7} = socket_close(Data6),
-         {ok, Data7#data{state = 'CONNECTED'}};
+         {ok, Data100} = reject_logon(Data, Reason),
+         {ok, Data100#data{state = 'CONNECTED'}};
       _:Err ->
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Err]),
-         LogoutMsg = create_logout(Data#data.parser_out, "Logon failed"),
-         {ok, Data6} = send_fix_message(LogoutMsg, Data),
-         {ok, Data7} = socket_close(Data6),
-         {ok, Data7#data{state = 'CONNECTED'}}
+         {ok, Data100} = reject_logon(Data, "Logon failed"),
+         {ok, Data100#data{state = 'CONNECTED'}}
    end.
 
 % ================= CONNECTED END =====================================================================
@@ -271,12 +280,12 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 % ================= LOGGED_IN BEGIN ===================================================================
 'LOGGED_IN'(heartbeat, Data) ->
    {ok, Msg} = fix_parser:create_msg(Data#data.parser_out, "0"),
-   {ok, Data1} = send_fix_message(Msg, Data),
+   {ok, Data1} = send_fix_message([Msg], Data),
    restart_heartbeat(Data1);
 
 'LOGGED_IN'(disconnect, Data) ->
-   Msg = create_logout(Data#data.parser_out, "Explicitly disconnected"),
-   {ok, Data1} = send_fix_message(Msg, Data),
+   {ok, Msg} = create_logout(Data#data.parser_out, "Explicitly disconnected"),
+   {ok, Data1} = send_fix_message([Msg], Data),
    {ok, Data2} = socket_close(Data1),
    {ok, Data3} = cancel_heartbeat(Data2),
    {ok, Data3#data{state = 'DISCONNECTED'}};
@@ -292,52 +301,47 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    {ok, Data2#data{state = 'CONNECTED'}};
 
 'LOGGED_IN'(HeartbeatMsg = #msg{type = "0"}, Data) ->
-   {ok, MsgSeqNum} = fix_parser:get_int32_field(HeartbeatMsg, ?FIXFieldTag_MsgSeqNum),
-   {ok, Data1} = check_gap(MsgSeqNum, Data),
-   store_seq_num_in(MsgSeqNum, Data1);
+   {ok, SeqNum} = fix_parser:get_int32_field(HeartbeatMsg, ?FIXFieldTag_MsgSeqNum),
+   store_seq_num_in(SeqNum, Data);
 
 'LOGGED_IN'(LogoutMsg = #msg{type = "5"}, Data) ->
-   Logout = create_logout(Data#data.parser_out, "Bye"),
-   {ok, Data1} = send_fix_message(Logout, Data),
-   {ok, MsgSeqNum} = fix_parser:get_int32_field(LogoutMsg, ?FIXFieldTag_MsgSeqNum),
+   {ok, Logout} = create_logout(Data#data.parser_out, "Bye"),
+   {ok, Data1} = send_fix_message([Logout], Data),
+   {ok, SeqNum} = fix_parser:get_int32_field(LogoutMsg, ?FIXFieldTag_MsgSeqNum),
    {ok, Data2} = cancel_heartbeat(Data1),
-   store_seq_num_in(MsgSeqNum, Data2);
+   store_seq_num_in(SeqNum, Data2);
 
 'LOGGED_IN'(TestRequestMsg = #msg{type = "1"}, Data) ->
    {ok, TestReqID} = fix_parser:get_string_field(TestRequestMsg, ?FIXFieldTag_TestReqID),
    {ok, HeartbeatMsg} = fix_parser:create_msg(Data#data.parser_out, "0"),
    ok = fix_parser:set_string_field(HeartbeatMsg, ?FIXFieldTag_TestReqID, TestReqID),
-   {ok, Data1} = send_fix_message(HeartbeatMsg, Data),
+   {ok, Data1} = send_fix_message([HeartbeatMsg], Data),
    {ok, Data2} = restart_heartbeat(Data1),
-   {ok, MsgSeqNum} = fix_parser:get_int32_field(TestRequestMsg, ?FIXFieldTag_MsgSeqNum),
-   {ok, Data3} = check_gap(MsgSeqNum, Data2),
-   store_seq_num_in(MsgSeqNum, Data3);
+   {ok, SeqNum} = fix_parser:get_int32_field(TestRequestMsg, ?FIXFieldTag_MsgSeqNum),
+   store_seq_num_in(SeqNum, Data2);
 
 'LOGGED_IN'(ResendRequestMsg = #msg{type = "2"}, Data = #data{storage = Storage}) ->
-   {ok, MsgSeqNum} = fix_parsr:get_int32_field(ResendRequestMsg, ?FIXFieldTag_MsgSeqNum),
    {ok, BeginSeqNo} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_BeginSeqNo),
    {ok, EndSeqNo} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_EndSeqNo),
    fix_storage:resend(Storage, BeginSeqNo, EndSeqNo),
-   {ok, Data1} = check_gap(MsgSeqNum, Data),
-   store_seq_num_in(MsgSeqNum, Data1);
+   {ok, Data};
 
 'LOGGED_IN'(Msg = #msg{}, Data = #data{module = Module, module_state = MState}) ->
-   {ok, MsgSeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
-   {ok, Data1} = check_gap(MsgSeqNum, Data),
-   {ok, Data2} = store_seq_num_in(MsgSeqNum, Data1),
+   {ok, SeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
+   {ok, Data1} = store_seq_num_in(SeqNum, Data),
    case Module:handle_fix(Msg, MState) of
       {reply, ReplyMsg = #msg{}, NewMState} ->
-         {ok, Data3} = send_fix_message(ReplyMsg, Data2),
-         {ok, Data4} = restart_heartbeat(Data3),
-         {ok, Data4#data{module_state = NewMState}};
+         {ok, Data2} = send_fix_message([ReplyMsg], Data),
+         {ok, Data3} = restart_heartbeat(Data2),
+         {ok, Data3#data{module_state = NewMState}};
       {noreply, NewMState} ->
-         {ok, Data2#data{module_state = NewMState}};
+         {ok, Data1#data{module_state = NewMState}};
       Reply ->
-         {stop, {bad_return_value, Reply}, Data2}
+         {stop, {bad_return_value, Reply}, Data1}
    end;
 
 'LOGGED_IN'({send_fix, FixMsg}, Data) ->
-   {ok, Data1} = send_fix_message(FixMsg, Data),
+   {ok, Data1} = send_fix_message([FixMsg], Data),
    restart_heartbeat(Data1);
 
 'LOGGED_IN'({skip_resend, SkipFrom, SkipTo}, Data = #data{parser_out = Parser, session_id = SessionID}) ->
@@ -431,14 +435,25 @@ validate_logon(_, _, _) ->
 create_logout(Parser, Text) ->
    {ok, Msg} = fix_parser:create_msg(Parser, "5"),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_Text, Text),
-   Msg.
+   {ok, Msg}.
 
 create_logon(ResetSeqNum, #data{parser_out = Parser, heartbeat_int = HeartBtInt}) ->
    {ok, Msg} = fix_parser:create_msg(Parser, "A"),
    ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_HeartBtInt, HeartBtInt),
    ok = fix_parser:set_char_field(Msg, ?FIXFieldTag_ResetSeqNumFlag, ResetSeqNum),
    ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_EncryptMethod, 0),
-   Msg.
+   {ok, Msg}.
+
+reject_logon(Data, Reason) ->
+   {ok, LogoutMsg} = create_logout(Data#data.parser_out, Reason),
+   {ok, Data1} = send_fix_message([LogoutMsg], Data),
+   socket_close(Data1).
+
+create_resend(BeginSeqNo, EndSeqNo, #data{parser_out = Parser}) ->
+   {ok, Msg} = fix_parser:create_msg(Parser, "2"),
+   ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_BeginSeqNo, BeginSeqNo),
+   ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_EndSeqNo, EndSeqNo),
+   {ok, Msg}.
 
 resend_fix_message(MsgSeqNum, Msg, Data) ->
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SenderCompID, Data#data.sender_comp_id),
@@ -455,20 +470,22 @@ resend_fix_message(MsgSeqNum, Msg, Data) ->
    trace(Msg, out, Data),
    {ok, Data}.
 
-send_fix_message(Msg, Data = #data{module = Module, module_state = MState, seq_num_out = SeqNumOut}) ->
-   NewSeqNumOut = SeqNumOut + 1,
+send_fix_message([], Data) ->
+   {ok, Data};
+send_fix_message([Msg|Rest], Data = #data{module = Module, module_state = MState, seq_num_out = SeqNumOut}) ->
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SenderCompID, Data#data.sender_comp_id),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TargetCompID, Data#data.target_comp_id),
-   ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, NewSeqNumOut),
+   ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, SeqNumOut),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SendingTime, fix_utils:now_utc()),
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
    case socket_send(Data#data.socket, BinMsg) of
       ok ->
          trace(Msg, out, Data),
-         store_msg_out(NewSeqNumOut, Msg#msg.type, BinMsg, Data);
+         {ok, Data1} = store_msg_out(SeqNumOut + 1, Msg#msg.type, BinMsg, Data),
+         send_fix_message(Rest, Data1);
       {error, Reason} ->
          {ok, MState1} = Module:handle_error({unable_to_send, Reason}, Msg, MState),
-         {ok, Data#data{module_state = MState1}}
+         send_fix_message(Rest, Data#data{module_state = MState1})
    end.
 
 trace(_, _, #data{tracer = undefined}) -> ok;
@@ -488,7 +505,7 @@ store_seq_num_in(SeqNumIn, Data = #data{storage = Storage}) ->
    {ok, Data#data{seq_num_in = SeqNumIn}}.
 
 get_storage_stat(Data = #data{storage = undefined}) ->
-   {ok, Data#data{seq_num_in = 0, seq_num_out = 0}};
+   {ok, Data#data{seq_num_in = 1, seq_num_out = 1}};
 get_storage_stat(Data = #data{storage = Storage}) ->
    {ok, {SeqNumIn, SeqNumOut}} = fix_storage:get_stat(Storage),
    {ok, Data#data{seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}}.
@@ -567,6 +584,3 @@ resend([{SeqNum, _Type, BinMsg}|Rest], {SkipFrom, SkipTo}, Data = #data{module =
          {ok, Data2} = ?MODULE:apply(Data, {skip_resend, SkipFrom, SeqNum})
    end,
    resend(Rest, {0, 0}, Data2#data{module_state = MState1}).
-
-check_gap(_MsgSeqNum, Data) ->
-   {ok, Data}.
