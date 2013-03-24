@@ -33,7 +33,7 @@ loop(Socket, Timeout, LogonPart) ->
                SessionID = fix_utils:make_session_id(TargetCompID,  SenderCompID),
                error_logger:info_msg("New incoming session [~p] detected.", [SessionID]),
                dispatch_session(SessionID, Socket, Logon);
-            {error, ?FIX_ERROR_BODY_TOO_SHORT, _} ->
+            {error, ?FIX_ERROR_NO_MORE_DATA, _} ->
                ?MODULE:loop(Socket, Timeout, Logon);
             {error, ErrCode, ErrText} ->
                error_logger:error_msg("Unable to parse logon message. ErrCode = [~p], ErrText = [~p], Logon message = [~p]",

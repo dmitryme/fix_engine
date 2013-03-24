@@ -400,7 +400,7 @@ parse_binary(Bin, Data = #data{binary = PrefixBin}) ->
             Reply ->
                Reply
          end;
-      {fix_error, ?FIX_ERROR_BODY_TOO_SHORT, _} ->
+      {fix_error, ?FIX_ERROR_NO_MORE_DATA, _} ->
          {ok, Data#data{binary = <<PrefixBin/binary, Bin/binary>>}};
       {fix_error, ErrCode, ErrText} ->
          error_logger:error_msg("[~p]: unable to parse incoming message. Error = [~p], Description = [~p].",

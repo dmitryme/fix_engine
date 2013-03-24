@@ -57,4 +57,4 @@
 -define(FIX_ERROR_PARSE_MSG,                20).
 -define(FIX_ERROR_WRONG_FIELD,              21).
 -define(FIX_ERROR_INTEGRITY_CHECK,          22).
--define(FIX_ERROR_BODY_TOO_SHORT,           23).
+-define(FIX_ERROR_NO_MORE_DATA,             23).
