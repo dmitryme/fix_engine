@@ -292,7 +292,7 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 
 'LOGGED_IN'(tcp_closed, Data) ->
    {ok, Data1} = cancel_heartbeat(Data),
-   {ok, Data1#data{socket = undefined, state = 'CONNECTED'}};
+   {ok, Data1#data{socket = undefined, binary = <<>>, state = 'CONNECTED'}};
 
 'LOGGED_IN'(#msg{type = "A"}, Data) ->
    error_logger:error_msg("[~p]: unexpected logon received.", [Data#data.session_id]),
@@ -354,6 +354,8 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
 
 'LOGGED_IN'({resend, FixMsg}, Data = #data{session_id = SessionID}) ->
    {ok, MsgSeqNum} = fix_parser:get_int32_field(FixMsg, ?FIXFieldTag_MsgSeqNum),
+   {ok, SendingTime} = fix_parser:get_string_field(FixMsg, ?FIXFieldTag_SendingTime),
+   ok = fix_parser:set_string_field(FixMsg, ?FIXFieldTag_OrigSendingTime, SendingTime),
    error_logger:info_msg("[~p]: ~p message with MsgSeqNum = ~p will be resent.", [SessionID, FixMsg#msg.type, MsgSeqNum]),
    ok = fix_parser:set_char_field(FixMsg, ?FIXFieldTag_PossDupFlag, $Y),
    resend_fix_message(MsgSeqNum, FixMsg, Data);
