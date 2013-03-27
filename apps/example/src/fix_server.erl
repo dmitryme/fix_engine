@@ -54,7 +54,8 @@ handle_fix(FixMsg = #msg{type = "D"}, State = #state{reply = Reply}) ->
    ok = fix_parser:set_double_field(Reply, ?FIXFieldTag_AvgPx, 0),
    {reply, Reply, State#state{order_id = State#state.order_id + 1}};
 handle_fix(FixMsg, State) ->
-   error_logger:error_msg("Unsupported msg received [~p]", [FixMsg#msg.type]),
+   {ok, Msg} = fix_parser:msg_to_binary(FixMsg, ?FIX_SOH),
+   error_logger:error_msg("Unsupported msg received [~p]", [Msg]),
    {noreply, State}.
 
 handle_resend(_FixMsg, State) ->
