@@ -21,8 +21,8 @@ init(#fix_session_config{session_id = SessionID, storage_dir = Dir, storage_flag
       [{stat, SeqNumIn, SeqNumOut}] ->
          ok;
       [] ->
-         SeqNumIn = 1,
-         SeqNumOut = 1,
+         SeqNumIn = 0,
+         SeqNumOut = 0,
          ok = dets:insert(TableRef, {stat, SeqNumIn, SeqNumOut})
    end,
    {ok, #state{session_id = SessionID, table_ref = TableRef, seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}}.
@@ -32,8 +32,8 @@ handle_call(get_stat, _From, State) ->
 
 handle_cast(reset, State = #state{table_ref = TableRef}) ->
    ok = dets:delete_all_objects(TableRef),
-   ok = dets:insert(TableRef, {stat, 1, 1}),
-   {noreply, State#state{seq_num_in = 1, seq_num_out = 1}};
+   ok = dets:insert(TableRef, {stat, 0, 0}),
+   {noreply, State#state{seq_num_in = 0, seq_num_out = 0}};
 
 handle_cast({seq_num_in, MsgSeqNum}, State = #state{table_ref = TableRef, seq_num_out = SeqNumOut}) ->
    ok = dets:insert(TableRef, {stat, MsgSeqNum, SeqNumOut}),

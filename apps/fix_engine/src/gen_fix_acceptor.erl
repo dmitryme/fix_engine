@@ -244,19 +244,19 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
             {ok, Data3} = send_fix_message([LogonReply], Data2),
             {ok, Data4} = restart_heartbeat(Data3),
             {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data4);
-         false when MsgSeqNum < SeqNumIn andalso PossDupFlag == $N ->
+         false when MsgSeqNum =< SeqNumIn andalso PossDupFlag == $N ->
             DataRes = Data1,
-            throw({error, io_lib:format("MsgSeqNum too low, expecting ~p but received ~p", [SeqNumIn, MsgSeqNum])});
-         false when MsgSeqNum > SeqNumIn ->
-            {ok, LogonReply} = create_logon(ResetSeqNum, Data1),
-            {ok, ResendRequest} = create_resend(SeqNumIn + 1, 0, Data1),
-            {ok, Data2} = send_fix_message([LogonReply, ResendRequest], Data1),
-            {ok, DataRes} = restart_heartbeat(Data2);
-         false ->
+            throw({error, io_lib:format("MsgSeqNum too low, expecting ~p but received ~p", [SeqNumIn + 1, MsgSeqNum])});
+         false when MsgSeqNum =:= SeqNumIn + 1 ->
             {ok, LogonReply} = create_logon(ResetSeqNum, Data1),
             {ok, Data2} = send_fix_message([LogonReply], Data1),
             {ok, Data3} = restart_heartbeat(Data2),
-            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data3)
+            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data3);
+         false when MsgSeqNum > SeqNumIn + 1 ->
+            {ok, LogonReply} = create_logon(ResetSeqNum, Data1),
+            {ok, ResendRequest} = create_resend(SeqNumIn + 1, 0, Data1),
+            {ok, Data2} = send_fix_message([LogonReply, ResendRequest], Data1),
+            {ok, DataRes} = restart_heartbeat(Data2)
       end,
       {ok, DataRes#data{state = 'LOGGED_IN'}}
    catch
@@ -341,19 +341,19 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    check_gap(ResendRequestMsg, F, Data);
 
 'LOGGED_IN'(SequenceReset = #msg{type = "4"}, Data) ->
-   F = fun() ->
-      {ok, MsgSeqNum} = fix_parser:get_int32_field(SequenceReset, ?FIXFieldTag_MsgSeqNum),
-      {ok, GapFillFlag} = fix_parser:get_char_field(SequenceReset, ?FIXFieldTag_GapFillFlag, $N),
-      {ok, NewSeqNo} = fix_parser:get_int32_field(SequenceReset, ?FIXFieldTag_NewSeqNo),
-      case GapFillFlag of
-         $N -> % sequence reset
-            {ok, Data1} = store_seq_num_in(NewSeqNo, Data);
-         $Y -> % fill gap
-            {ok, Data1} = store_seq_num_in(MsgSeqNum, Data)
-      end,
-      restart_heartbeat(Data1)
-   end,
-   check_gap(SequenceReset, F, Data);
+   {ok, GapFillFlag} = fix_parser:get_char_field(SequenceReset, ?FIXFieldTag_GapFillFlag, $N),
+   case GapFillFlag of
+      $N ->
+         {ok, NewSeqNo} = fix_parser:get_int32_field(SequenceReset, ?FIXFieldTag_NewSeqNo),
+         {ok, Data1} = store_seq_num_in(NewSeqNo, Data),
+         restart_heartbeat(Data1);
+      $Y ->
+         F = fun() ->
+            {ok, MsgSeqNum} = fix_parser:get_int32_field(SequenceReset, ?FIXFieldTag_MsgSeqNum),
+            store_seq_num_in(MsgSeqNum, Data)
+         end,
+         check_gap(SequenceReset, F, Data)
+   end;
 
 'LOGGED_IN'(Msg = #msg{}, Data = #data{module = Module, module_state = MState}) ->
    F = fun() ->
@@ -509,15 +509,16 @@ resend_fix_message(MsgSeqNum, Msg, Data) ->
 send_fix_message([], Data) ->
    {ok, Data};
 send_fix_message([Msg|Rest], Data = #data{module = Module, module_state = MState, seq_num_out = SeqNumOut}) ->
+   MsgSeqNum = SeqNumOut + 1,
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SenderCompID, Data#data.sender_comp_id),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TargetCompID, Data#data.target_comp_id),
-   ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, SeqNumOut),
+   ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, MsgSeqNum),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SendingTime, fix_utils:now_utc()),
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
    case socket_send(Data#data.socket, BinMsg) of
       ok ->
          trace(Msg, out, Data),
-         {ok, Data1} = store_msg_out(SeqNumOut + 1, Msg#msg.type, BinMsg, Data),
+         {ok, Data1} = store_msg_out(MsgSeqNum, Msg#msg.type, BinMsg, Data),
          send_fix_message(Rest, Data1);
       {error, Reason} ->
          {ok, MState1} = Module:handle_error({unable_to_send, Reason}, Msg, MState),
@@ -624,14 +625,16 @@ resend([{SeqNum, _Type, BinMsg}|Rest], {SkipFrom, SkipTo}, Data = #data{module =
 check_gap(Msg, Fun, Data = #data{seq_num_in = SeqNumIn}) ->
    {ok, MsgSeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
    {ok, PossDupFlag} = fix_parser:get_char_field(Msg, ?FIXFieldTag_PossDupFlag, $N),
-   case MsgSeqNum > SeqNumIn of
-      false when MsgSeqNum =:= SeqNumIn ->
-         Fun();
+   case MsgSeqNum =:= SeqNumIn + 1 of
       true ->
+         Fun();
+      false when MsgSeqNum > SeqNumIn + 1 ->
          {ok, ResendRequest} = create_resend(SeqNumIn + 1, 0, Data),
          send_fix_message([ResendRequest], Data);
-      false when MsgSeqNum < SeqNumIn andalso PossDupFlag =:= $N ->
+      false when MsgSeqNum < SeqNumIn + 1 andalso PossDupFlag =:= $N ->
          {ok, Logout} = create_logout(
             io_lib:format("MsgSeqNum too low, expecting ~p but received ~p", [SeqNumIn, MsgSeqNum]), Data),
-         send_fix_message([Logout], Data)
+         send_fix_message([Logout], Data);
+      false when MsgSeqNum < SeqNumIn + 1 andalso PossDupFlag =:= $Y ->
+         {ok, Data}
    end.
