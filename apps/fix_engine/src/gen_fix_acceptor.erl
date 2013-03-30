@@ -397,9 +397,18 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    ok = fix_parser:set_char_field(FixMsg, ?FIXFieldTag_PossDupFlag, $Y),
    resend_fix_message(MsgSeqNum, FixMsg, Data);
 
-'LOGGED_IN'({fix_error, ErrCode, ErrText}, Data = #data{session_id = SessionID}) ->
+'LOGGED_IN'({fix_error, ErrCode, ErrText, Bin}, Data = #data{parser_out = Parser, session_id = SessionID}) ->
    error_logger:error_msg("[~p]: Error = ~p. Description = ~p.", [SessionID, ErrCode, ErrText]),
-   % TODO: send levelReject here
+   case fix_parser:get_header(Bin, ?FIX_SOH) of
+      {ok, #msg_header{msg_seq_num = MsgSeqNum}} ->
+         {ok, Reject} = fix_parser:create_msg(Parser, "3"),
+         ok = fix_parser:set_int32_field(Reject, ?FIXFieldTag_RefSeqNum, MsgSeqNum),
+         ok = fix_parser:set_string_field(Reject, ?FIXFieldTag_Text, ErrText),
+         send_fix_message(Reject, Data);
+      _ ->
+         error_logger:error_msg("Unable to create SessionLevelReject. Message is garbled. Bin = ~p",
+            [Bin])
+   end,
    {ok, Data}.
 
 % ================= LOGGED_IN END =====================================================================
