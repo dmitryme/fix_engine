@@ -340,17 +340,20 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
    end,
    check_gap(ResendRequestMsg, F, Data);
 
-'LOGGED_IN'(SequenceReset = #msg{type = "4"}, Data) ->
+'LOGGED_IN'(SequenceReset = #msg{type = "4"}, Data = #data{session_id = SessionID}) ->
    {ok, GapFillFlag} = fix_parser:get_char_field(SequenceReset, ?FIXFieldTag_GapFillFlag, $N),
+   {ok, NewSeqNo} = fix_parser:get_int32_field(SequenceReset, ?FIXFieldTag_NewSeqNo),
    case GapFillFlag of
       $N ->
-         {ok, NewSeqNo} = fix_parser:get_int32_field(SequenceReset, ?FIXFieldTag_NewSeqNo),
+         error_logger:info_msg("[~p]: SeqNumIn has been reset to ~p.", [SessionID, NewSeqNo]),
          {ok, Data1} = store_seq_num_in(NewSeqNo, Data),
          restart_heartbeat(Data1);
       $Y ->
          F = fun() ->
             {ok, MsgSeqNum} = fix_parser:get_int32_field(SequenceReset, ?FIXFieldTag_MsgSeqNum),
-            store_seq_num_in(MsgSeqNum, Data)
+            error_logger:info_msg("[~p]: gap [~p,~p] filled.", [SessionID, MsgSeqNum, NewSeqNo - 1]),
+            {ok, Data1} = store_seq_num_in(NewSeqNo - 1, Data),
+            restart_heartbeat(Data1);
          end,
          check_gap(SequenceReset, F, Data)
    end;
@@ -622,19 +625,29 @@ resend([{SeqNum, _Type, BinMsg}|Rest], {SkipFrom, SkipTo}, Data = #data{module =
    end,
    resend(Rest, {0, 0}, Data2#data{module_state = MState1}).
 
-check_gap(Msg, Fun, Data = #data{seq_num_in = SeqNumIn}) ->
+check_gap(Msg, Fun, Data = #data{session_id = SessionID, seq_num_in = SeqNumIn}) ->
    {ok, MsgSeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
    {ok, PossDupFlag} = fix_parser:get_char_field(Msg, ?FIXFieldTag_PossDupFlag, $N),
    case MsgSeqNum =:= SeqNumIn + 1 of
       true ->
          Fun();
       false when MsgSeqNum > SeqNumIn + 1 ->
+         error_logger:info_msg(
+            "[~p]: message ~p with MsgSeqNum = ~p higher what expected ~p. ResendRequest will be sent.",
+            [SessionID, Msg#msg.type, MsgSeqNum, SeqNumIn + 1]),
          {ok, ResendRequest} = create_resend(SeqNumIn + 1, 0, Data),
-         send_fix_message([ResendRequest], Data);
+         {ok, Data1} = send_fix_message([ResendRequest], Data),
+         restart_heartbeat(Data1);
       false when MsgSeqNum < SeqNumIn + 1 andalso PossDupFlag =:= $N ->
          {ok, Logout} = create_logout(
             io_lib:format("MsgSeqNum too low, expecting ~p but received ~p", [SeqNumIn, MsgSeqNum]), Data),
-         send_fix_message([Logout], Data);
+         send_fix_message([Logout], Data),
+         {ok, Data1} = cancel_heartbeat(Data),
+         {ok, Data2} = socket_close(Data1#data.socket),
+         {ok, Data2#data{state = 'CONNECTED', socket = undefined}};
       false when MsgSeqNum < SeqNumIn + 1 andalso PossDupFlag =:= $Y ->
-         {ok, Data}
+         error_logger:info_msg(
+            "[~p]: message ~p with MsgSeqNum = ~p has been skipped. Expected MsgSeqNum = ~p.",
+            [SessionID, Msg#msg.type, MsgSeqNum, SeqNumIn + 1]),
+         restart_heartbeat(Data)
    end.
