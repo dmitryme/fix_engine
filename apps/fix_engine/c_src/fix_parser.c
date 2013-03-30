@@ -618,32 +618,21 @@ static ERL_NIF_TERM set_string_field(ErlNifEnv* env, int32_t argc, ERL_NIF_TERM 
    {
       return make_error(env, FIX_FAILED, "Wrong tag num.");
    }
-   if (!enif_is_list(env, argv[2]))
+   ErlNifBinary bin;
+   if (!enif_inspect_iolist_as_binary(env, argv[2], &bin))
    {
-      return make_error(env, FIX_FAILED, "Value is not a string.");
+      return make_error(env, FIX_FAILED, "Value is not an iolist.");
    }
-   uint32_t len = 0;
-   enif_get_list_length(env, argv[2], &len);
-   char* buff = malloc(len + 1);
    ERL_NIF_TERM ret = ok_atom;
-   if (enif_get_string(env, argv[2], buff, len + 1, ERL_NIF_LATIN1) <= 0)
+   FIXError* error = NULL;
+   pthread_rwlock_wrlock(&parser->lock);
+   FIXErrCode err = fix_msg_set_string_len(msg, group, tagNum, (char const*)bin.data, bin.size, &error);
+   pthread_rwlock_unlock(&parser->lock);
+   if (err == FIX_FAILED)
    {
-      ret = make_error(env, FIX_FAILED, "Unable to get string value.");
+      ret = make_parser_error(env, fix_error_get_code(error), fix_error_get_text(error));
+      fix_error_free(error);
    }
-   else
-   {
-      buff[len] = 0;
-      FIXError* error = NULL;
-      pthread_rwlock_wrlock(&parser->lock);
-      FIXErrCode err = fix_msg_set_string(msg, group, tagNum, buff, &error);
-      pthread_rwlock_unlock(&parser->lock);
-      if (err == FIX_FAILED)
-      {
-         ret = make_parser_error(env, fix_error_get_code(error), fix_error_get_text(error));
-         fix_error_free(error);
-      }
-   }
-   free(buff);
    return ret;
 }
 
