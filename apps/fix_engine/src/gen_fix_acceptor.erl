@@ -261,16 +261,16 @@ code_change(OldVsn, Data  = #data{module = Module, module_state = MState}, Extra
       {ok, DataRes#data{state = 'LOGGED_IN'}}
    catch
       throw:{badmatch, {fix_error, _, Reason}} ->
-         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Reason]),
+         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, lists:flatten(Reason)]),
          {ok, Data100} = reject_logon(Reason, Data),
          {ok, Data100#data{state = 'CONNECTED'}};
       throw:{error, Reason} ->
-         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Reason]),
+         error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, lists:flatten(Reason)]),
          {ok, Data100} = reject_logon(Reason, Data),
          {ok, Data100#data{state = 'CONNECTED'}};
       _:Err ->
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Err]),
-         {ok, Data100} = reject_logon("Logon failed", Data),
+         {ok, Data100} = reject_logon("Logon failed.", Data),
          {ok, Data100#data{state = 'CONNECTED'}}
    end.
 
@@ -554,7 +554,7 @@ store_seq_num_in(SeqNumIn, Data = #data{storage = Storage}) ->
    {ok, Data#data{seq_num_in = SeqNumIn}}.
 
 get_storage_stat(Data = #data{storage = undefined}) ->
-   {ok, Data#data{seq_num_in = 1, seq_num_out = 1}};
+   {ok, Data#data{seq_num_in = 0, seq_num_out = 0}};
 get_storage_stat(Data = #data{storage = Storage}) ->
    {ok, {SeqNumIn, SeqNumOut}} = fix_storage:get_stat(Storage),
    {ok, Data#data{seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}}.
