@@ -17,12 +17,12 @@
       code_change/3
    ]).
 
--behaviour(gen_fix_acceptor).
+-behaviour(gen_fix_session).
 
 -record(state, {session_id, parser_ref, order_id = 1, reply}).
 
 start_link(SessionCfg) ->
-   gen_fix_acceptor:start_link(SessionCfg, []).
+   gen_fix_session:start_link(SessionCfg, []).
 
 init(SessionID, ParserRef, _ModuleArgs) ->
    {ok, Reply} = fix_parser:create_msg(ParserRef, "8"),
