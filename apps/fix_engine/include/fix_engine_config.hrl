@@ -29,8 +29,9 @@
       fix_parser_flags     = [check_all] :: [atom()],
       reconnect_interval   = 1000        :: pos_integer(),   % in milliseconds
       reconnect_attempts   = 10          :: pos_integer(),
-      lost_heartbeat_delta = 500         :: pos_integer()    % in milliseconds. Heartbeat considered lost if no messages
-                                                             % is received after HeartBtInt * 1000 + lost_heartbeat_delta
+      heartbeat_int        = 0           :: pos_integer(),   % in seconds. Heartbeat interval. 0 - disabled
+      transmission_time    = 500         :: pos_integer()    % in milliseconds. Heartbeat considered lost if no messages
+                                                             % is received after HeartBtInt * 1000 + transmission_time
    }).
 
 -record(fix_engine_config,
