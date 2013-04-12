@@ -123,7 +123,8 @@ merge_cfg(#fix_engine_config{
       tracer_flags = TFlags1,
       storage_module = SMod1,
       storage_dir = SDir1,
-      storage_flags = SFlags1},
+      storage_flags = SFlags1,
+      socket_opts = SockOpts1},
    SessionCfg = #fix_session_config{
       fix_protocol = Proto2,
       tracer_module = TMod2,
@@ -131,7 +132,8 @@ merge_cfg(#fix_engine_config{
       tracer_flags = TFlags2,
       storage_module = SMod2,
       storage_dir = SDir2,
-      storage_flags = SFlags2}) ->
+      storage_flags = SFlags2,
+      socket_opts = SockOpts2}) ->
    SessionCfg#fix_session_config{
       fix_protocol   = merge_param(Proto2, Proto1),
       tracer_module  = merge_param(TMod2, TMod1),
@@ -139,7 +141,8 @@ merge_cfg(#fix_engine_config{
       tracer_flags   = merge_param(TFlags2, TFlags1),
       storage_module = merge_param(SMod2, SMod1),
       storage_dir    = merge_param(SDir2, SDir1),
-      storage_flags  = merge_param(SFlags2, SFlags1)}.
+      storage_flags  = merge_param(SFlags2, SFlags1),
+      socket_opts    = merge_param(SockOpts1, SockOpts2)}.
 
 merge_param(undefined, A) ->
    A;
