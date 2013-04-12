@@ -103,8 +103,7 @@ init(Config = #fix_session_config{session_id = SessionID, module = Module, modul
          Other
    end.
 
-handle_call({gen_fix_session, {set_socket, _Socket}}, _From, Data = #data{socket = OldSocket, config =
-      #fix_session_config{session_id = SessionID}}) when is_port(OldSocket) orelse is_pid(OldSocket) ->
+handle_call({gen_fix_session, {set_socket, _Socket}}, _From, Data = #data{socket = OldSocket}) when is_port(OldSocket) orelse is_pid(OldSocket) ->
    {reply, {error, already_connected}, Data};
 handle_call({gen_fix_session, {set_socket, Socket}}, _From, Data) ->
    {reply, ok, Data#data{socket = Socket}};
