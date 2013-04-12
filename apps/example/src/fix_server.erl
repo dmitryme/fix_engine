@@ -6,11 +6,12 @@
 
 -export([
       start_link/1,
-      init/3,
+      init/4,
       handle_call/3,
       handle_cast/2,
       handle_info/2,
       handle_fix/2,
+      handle_fix_state/3,
       handle_resend/2,
       handle_error/3,
       terminate/2,
@@ -24,7 +25,7 @@
 start_link(SessionCfg) ->
    gen_fix_session:start_link(SessionCfg, []).
 
-init(SessionID, ParserRef, _ModuleArgs) ->
+init(SessionID, _FixState, ParserRef, _ModuleArgs) ->
    {ok, Reply} = fix_parser:create_msg(ParserRef, "8"),
    {connect, #state{session_id = SessionID, parser_ref = ParserRef, reply = Reply}}.
 
@@ -57,6 +58,9 @@ handle_fix(FixMsg, State) ->
    {ok, Msg} = fix_parser:msg_to_binary(FixMsg, ?FIX_SOH),
    error_logger:error_msg("Unsupported msg received [~p]", [Msg]),
    {noreply, State}.
+
+handle_fix_state(_OldFixState, _NewFixState, State) ->
+   {ok, State}.
 
 handle_resend(_FixMsg, State) ->
    {true, State}.

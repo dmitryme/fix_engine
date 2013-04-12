@@ -24,7 +24,7 @@ configuration() ->
          },
          #fix_session_config{
             type = initiator,
-            module = fix_server,
+            module = fix_client,
             sender_comp_id = "client",
             target_comp_id = "server",
             username = "",

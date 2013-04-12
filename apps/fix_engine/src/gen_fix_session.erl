@@ -27,19 +27,22 @@
       config                     :: #fix_session_config{}
    }).
 
--callback init(atom(), #parser{}, term()) ->
+-callback init(atom(), FixState :: atom(), #parser{}, term()) ->
     {ok, State :: term()} | {ok, State :: term(), timeout() | hibernate} |
     {connect, State :: term()} |
     {connect, State :: term(), timeout() | hibernate} |
     {stop, Reason :: term()} | ignore.
+
 -callback handle_cast(Request :: term(), State :: term()) ->
     {noreply, NewState :: term()} |
     {noreply, NewState :: term(), timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: term()}.
+
 -callback handle_info(Info :: timeout() | term(), State :: term()) ->
     {noreply, NewState :: term()} |
     {noreply, NewState :: term(), timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: term()}.
+
 -callback handle_call(Request :: term(), From :: {pid(), Tag :: term()},
                       State :: term()) ->
     {reply, Reply :: term(), NewState :: term()} |
@@ -48,11 +51,17 @@
     {noreply, NewState :: term(), timeout() | hibernate} |
     {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
     {stop, Reason :: term(), NewState :: term()}.
+
 -callback handle_fix(FIXMessage :: #msg{}, State :: term()) ->
    {reply, FIXMessage :: #msg{}, NewState :: term()} |
    {noreply, NewState :: term()}.
+
+-callback handle_fix_state(NewFixState :: atom(), OldFixState :: atom(), State :: term()) ->
+   {ok, NewState :: term()}.
+
 -callback handle_resend(FIXMessage :: #msg{}, State :: term()) ->
    {true, NewState :: term()} | {false, NewState :: term()}.
+
 -callback handle_error({Error :: atom(), Reason :: term()}, FIXMessage :: #msg{}, State :: term()) ->
    {ok, NewState :: term()}.
 
@@ -81,14 +90,14 @@ start_link(Args = #fix_session_config{session_id = SessionID}, Options) ->
    error_logger:info_msg("[~p]: starting.", [SessionID]),
    gen_server:start_link({local, SessionID}, ?MODULE, Args, Options).
 
-init(Config = #fix_session_config{session_id = SessionID, module = Module, module_args = MArgs, fix_protocol = Protocol,
-      fix_parser_flags = ParserFlags}) ->
+init(Config = #fix_session_config{session_id = SessionID, module = Module,
+      module_args = MArgs, fix_protocol = Protocol, fix_parser_flags = ParserFlags}) ->
    {ok, ParserInRef} = create_parser(SessionID, Protocol, [], ParserFlags),
    {ok, ParserOutRef} = create_parser(SessionID, Protocol, [], ParserFlags),
    Data = #data{parser_in = ParserInRef, parser_out = ParserOutRef, config = Config},
    {ok, Data1} = get_storage_stat(Data),
    error_logger:info_msg("[~p]: seq_num_in = ~p, seq_num_out = ~p.", [SessionID, Data1#data.seq_num_in, Data1#data.seq_num_out]),
-   case Module:init(SessionID, ParserOutRef, MArgs) of
+   case Module:init(SessionID, Data#data.state, ParserOutRef, MArgs) of
       {ok, State} ->
          {ok, Data1#data{module_state = State}};
       {ok, State, Timeout} ->
@@ -460,14 +469,16 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
 % =========================== Acceptor FSM end ========================================================
 % =====================================================================================================
 
-apply(Data = #data{config = #fix_session_config{session_id = SessionID}, state = OldState}, Msg) ->
+apply(Data = #data{module_state = MState, config = #fix_session_config{session_id = SessionID, module = Module}, state = OldState}, Msg) ->
    case (catch erlang:apply(?MODULE, OldState, [Msg, Data])) of
       {ok, NewData = #data{state = NewState}} ->
          if NewState =/= OldState ->
-               error_logger:info_msg("[~p]: state changed [~p]->[~p].", [SessionID, OldState, NewState]);
-            true -> ok
-         end,
-         {ok, NewData};
+            {ok, MState1} = Module:handle_fix_state(NewState, OldState, MState),
+            error_logger:info_msg("[~p]: state changed [~p]->[~p].", [SessionID, OldState, NewState]),
+            {ok, NewData#data{module_state = MState1}};
+         true ->
+            {ok, NewData}
+         end;
       Reply = {stop, _Reason, _Data} ->
          Reply;
       {'EXIT', {function_clause, [_]}} ->
