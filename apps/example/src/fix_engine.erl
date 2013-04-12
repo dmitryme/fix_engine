@@ -23,12 +23,15 @@ configuration() ->
             password = ""
          },
          #fix_session_config{
-            type = acceptor,
+            type = initiator,
             module = fix_server,
-            sender_comp_id = "server",
-            target_comp_id = "client1",
+            sender_comp_id = "client",
+            target_comp_id = "server",
             username = "",
-            password = ""
+            password = "",
+            host = "localhost",
+            port = 60000,
+            heartbeat_int = 1
          }
        ]
    }.
