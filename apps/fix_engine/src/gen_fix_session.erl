@@ -13,17 +13,18 @@
 -export([apply/2, 'DISCONNECTED'/2, 'CONNECTED'/2, 'LOGGED_IN'/2]).
 
 -record(data, {
-      module_state         :: term(),
-      socket               :: port() | gen_tcp:socket(),
-      parser_in            :: #parser{},
-      parser_out           :: #parser{},
-      seq_num_out          :: pos_integer(),
-      seq_num_in           :: pos_integer(),
-      state = 'DISCONNECTED' :: atom(),
-      heartbeat_timer_ref  :: reference(),
-      timeout_timer_ref    :: reference(),
-      binary = <<>>        :: binary(),
-      config               :: #fix_session_config{}
+      module_state               :: term(),
+      socket                     :: port() | gen_tcp:socket(),
+      parser_in                  :: #parser{},
+      parser_out                 :: #parser{},
+      seq_num_out                :: pos_integer(),
+      seq_num_in                 :: pos_integer(),
+      state = 'DISCONNECTED'     :: atom(),
+      heartbeat_timer_ref        :: reference(),
+      timeout_timer_ref          :: reference(),
+      binary              = <<>> :: binary(),
+      reconnect_tries     = 0    :: pos_integer(),
+      config                     :: #fix_session_config{}
    }).
 
 -callback init(atom(), #parser{}, term()) ->
@@ -76,7 +77,7 @@ get_current_state(SessionID) ->
 send_fix(SessionID, FixMsg) ->
    gen_server:call(SessionID, {gen_fix_session, send_fix, FixMsg}).
 
-start_link(Args = #fix_session_config{type = acceptor, session_id = SessionID}, Options) ->
+start_link(Args = #fix_session_config{session_id = SessionID}, Options) ->
    error_logger:info_msg("[~p]: starting.", [SessionID]),
    gen_server:start_link({local, SessionID}, ?MODULE, Args, Options).
 
@@ -102,7 +103,8 @@ init(Config = #fix_session_config{session_id = SessionID, module = Module, modul
          Other
    end.
 
-handle_call({gen_fix_session, {set_socket, _Socket}}, _From, Data = #data{socket = OldSocket}) when is_port(OldSocket) ->
+handle_call({gen_fix_session, {set_socket, _Socket}}, _From, Data = #data{socket = OldSocket, config =
+      #fix_session_config{session_id = SessionID}}) when is_port(OldSocket) orelse is_pid(OldSocket) ->
    {reply, {error, already_connected}, Data};
 handle_call({gen_fix_session, {set_socket, Socket}}, _From, Data) ->
    {reply, ok, Data#data{socket = Socket}};
@@ -160,12 +162,15 @@ handle_info({tcp, Socket, Bin}, Data = #data{socket = Socket}) ->
 handle_info({tcp_closed, Socket}, Data = #data{socket = Socket}) ->
    {ok, Data1} = ?MODULE:apply(Data, tcp_closed),
    {noreply, Data1};
-handle_info({timeout, _, heartbeat}, Data) ->
-   {ok, Data1} = ?MODULE:apply(Data, heartbeat),
+
+handle_info({timeout, _, Type}, Data) ->
+   {ok, Data1} = ?MODULE:apply(Data, Type),
    {noreply, Data1};
+
 handle_info({resend, Msgs}, Data) ->
    {ok, Data1} = resend(Msgs, Data),
    {noreply, Data1};
+
 handle_info(Info, Data = #data{config = #fix_session_config{module = Module}, module_state = MState}) ->
    case Module:handle_info(Info, MState) of
       {noreply, NewMState} ->
@@ -194,14 +199,35 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
 % =====================================================================================================
 
 % ================= DISCONNECTED BEGIN ================================================================
-'DISCONNECTED'(connect, Data) ->
+'DISCONNECTED'(connect, Data = #data{config = #fix_session_config{type = acceptor}}) ->
    {ok, Data#data{state = 'CONNECTED'}};
+
+'DISCONNECTED'(connect, Data = #data{reconnect_tries = ReconnectTries, config = #fix_session_config{
+      type = initiator, session_id = SessionID, host = Host, port = Port,
+      reconnect_int = ReconnectInt, reconnect_max_tries = ReconnectMaxTries, socket_opts = SocketOpts,
+      logon_timeout = LogonTimeout}}) ->
+      case gen_tcp:connect(Host, Port, [{active, once}, binary | SocketOpts]) of
+      {ok, Socket} ->
+         Data1 = Data#data{state = 'CONNECTED', socket = Socket, reconnect_tries = 0},
+         {ok, LogonMsg} = create_logon($Y, Data1),
+         {ok, Data2} = send_fix_message([LogonMsg], Data1),
+         {ok, DataRes} = restart_timeout_timer(logon_timeout, LogonTimeout * 1000, Data2);
+      {error, Reason} when ReconnectTries =< ReconnectMaxTries orelse ReconnectMaxTries == 0 ->
+         error_logger:error_msg("[~p]: unable to connect to ~s:~p. Reason = ~p.", [SessionID, Host, Port, Reason]),
+         {ok, Data1} = restart_timeout_timer(connect, ReconnectInt, Data),
+         DataRes = Data1#data{reconnect_tries = Data1#data.reconnect_tries + 1};
+      {error, Reason} when ReconnectTries > ReconnectMaxTries ->
+         error_logger:error_msg("[~p]: unable to connect to ~s:~p. Reason = ~p.", [SessionID, Host, Port, Reason]),
+         error_logger:error_msg("[~p]: reconnect tries count exceeded limit ~p. Reconnection stopped.", [SessionID, ReconnectMaxTries]),
+         DataRes = Data#data{reconnect_tries = 0}
+   end,
+   {ok, DataRes};
 
 'DISCONNECTED'(heartbeat, Data) ->
    {ok, Data#data{heartbeat_timer_ref = undefined}};
 
-'DISCONNECTED'(_, Data) ->
-   error_logger:error_msg("[~p]: not connected. Do connect first.", [Data#data.config#fix_session_config.session_id]),
+'DISCONNECTED'(Msg, Data) ->
+   error_logger:error_msg("[~p]: unsupported msg ~p received.", [Data#data.config#fix_session_config.session_id, Msg]),
    socket_close(Data).
 % ================= DISCONNECTED END ==================================================================
 
@@ -210,14 +236,35 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    {ok, Data#data{heartbeat_timer_ref = undefined}};
 
 'CONNECTED'(disconnect, Data) ->
-   {ok, Data#data{state = 'DISCONNECTED'}};
+   {ok, Data1} = cancel_timeout_timer(Data),
+   {ok, Data1#data{state = 'DISCONNECTED'}};
 
 'CONNECTED'({fix_error, _ErrCode, ErrText}, Data) ->
    {ok, LogoutMsg} = create_logout(ErrText, Data),
    {ok, Data1} = send_fix_message([LogoutMsg], Data),
    socket_close(Data1);
 
-'CONNECTED'(Msg, Data = #data{config = #fix_session_config{session_id = SessionID}, seq_num_in = SeqNumIn, state = 'CONNECTED'}) ->
+'CONNECTED'(logon_timeout, Data = #data{config = #fix_session_config{type = initiator, session_id = SessionID, reconnect_int = ReconnectInt}}) ->
+   error_logger:error_msg("[~p]: no logon response within timeout interval.", [SessionID]),
+   {ok, Data1} = restart_timeout_timer(connect, ReconnectInt, Data),
+   {ok, Data2} = socket_close(Data1),
+   {ok, Data2#data{state = 'DISCONNECTED'}};
+
+'CONNECTED'(tcp_closed, Data = #data{config = #fix_session_config{type = initiator, session_id = SessionID, reconnect_int = ReconnectInt}}) ->
+   error_logger:error_msg("[~p]: socket closed by peer.", [SessionID]),
+   {ok, Data1} = cancel_timeout_timer(Data),
+   {ok, Data2} = restart_timeout_timer(connect, ReconnectInt, Data1),
+   {ok, Data2#data{state = 'DISCONNECTED'}};
+
+'CONNECTED'(Msg = #msg{type = "A"}, Data = #data{config = #fix_session_config{type = initiator, session_id = SessionID}}) ->
+   {ok, MsgSeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
+   {ok, Data1} = store_seq_num_in(MsgSeqNum, Data),
+   {ok, Data2} = restart_heartbeat_timer(Data1),
+   {ok, Data3} = cancel_timeout_timer(Data2),
+   error_logger:info_msg("[~p]: successfully logged in.", [SessionID]),
+   {ok, Data3#data{state = 'LOGGED_IN'}};
+
+'CONNECTED'(Msg = #msg{type = "A"}, Data = #data{config = #fix_session_config{type = acceptor, session_id = SessionID}, seq_num_in = SeqNumIn}) ->
    error_logger:info_msg("[~p]: message [~p] received.", [Data#data.config#fix_session_config.session_id, Msg#msg.type]),
    try
       validate_logon(Msg, Data#data.config#fix_session_config.username, Data#data.config#fix_session_config.password),
@@ -267,12 +314,12 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    {ok, Msg} = fix_parser:create_msg(Data#data.parser_out, "0"),
    send_fix_message([Msg], Data);
 
-'LOGGED_IN'(timeout, Data) ->
-   error_logger:info_msg("[~p]: timeout detected.", [Data#data.config#fix_session_config.session_id]),
+'LOGGED_IN'(timeout, Data = #data{config = #fix_session_config{session_id = SessionID, heartbeat_int = Timeout, transmission_time = TransTime}}) ->
+   error_logger:info_msg("[~p]: timeout detected.", [SessionID]),
    {ok, Msg} = fix_parser:create_msg(Data#data.parser_out, "1"),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TestReqID, erlang:ref_to_list(make_ref())),
    {ok, Data1} = send_fix_message([Msg], Data),
-   restart_timeout_timer(test_request_timeout, Data1);
+   restart_timeout_timer(test_request_timeout, Timeout * 1000 + TransTime, Data1);
 
 'LOGGED_IN'(test_request_timeout, Data = #data{config = #fix_session_config{session_id = SessionID}}) ->
    error_logger:error_msg("[~p]: connection considered lost.", [SessionID]),
@@ -432,17 +479,20 @@ apply(Data = #data{config = #fix_session_config{session_id = SessionID}, state =
          exit({error_wrong_result, Other})
    end.
 
-parse_binary(<<>>, Data) ->
+parse_binary(<<>>, Data = #data{config = #fix_session_config{heartbeat_int = 0}}) ->
    {ok, Data};
+
+parse_binary(<<>>, Data = #data{config = #fix_session_config{heartbeat_int = HeartbeatInt, transmission_time = TransTime}}) ->
+   restart_timeout_timer(timeout, HeartbeatInt * 1000 + TransTime, Data);
+
 parse_binary(Bin, Data = #data{binary = PrefixBin}) ->
    case fix_parser:binary_to_msg(Data#data.parser_in, ?FIX_SOH, <<PrefixBin/binary, Bin/binary>>) of
       {ok, Msg, RestBin} ->
          trace(Msg, in, Data),
          Data1 = Data#data{binary = <<>>},
-         {ok, Data2} = restart_timeout_timer(timeout, Data1),
-         case ?MODULE:apply(Data2, Msg) of
-            {ok, Data3} ->
-               parse_binary(RestBin, Data3);
+         case ?MODULE:apply(Data1, Msg) of
+            {ok, Data2} ->
+               parse_binary(RestBin, Data2);
             Reply ->
                Reply
          end;
@@ -456,10 +506,13 @@ parse_binary(Bin, Data = #data{binary = PrefixBin}) ->
 
 cancel_heartbeat_timer(Data = #data{heartbeat_timer_ref = undefined}) ->
    {ok, Data};
+
 cancel_heartbeat_timer(Data = #data{heartbeat_timer_ref = TimerRef}) ->
    erlang:cancel_timer(TimerRef),
    {ok, Data#data{heartbeat_timer_ref = undefined}}.
 
+restart_heartbeat_timer(Data = #data{config = #fix_session_config{heartbeat_int = 0}}) ->
+   {ok, Data};
 restart_heartbeat_timer(Data = #data{heartbeat_timer_ref = undefined, config = #fix_session_config{heartbeat_int = Timeout}}) ->
    TimerRef = erlang:start_timer(Timeout * 1000, self(), heartbeat),
    {ok, Data#data{heartbeat_timer_ref = TimerRef}};
@@ -474,12 +527,12 @@ cancel_timeout_timer(Data = #data{timeout_timer_ref = TimerRef}) ->
    erlang:cancel_timer(TimerRef),
    {ok, Data#data{timeout_timer_ref = undefined}}.
 
-restart_timeout_timer(Type, Data = #data{timeout_timer_ref = undefined, config = #fix_session_config{heartbeat_int = Timeout, transmission_time = TransTime}}) ->
-   TimerRef = erlang:start_timer(Timeout * 1000 + TransTime, self(), Type),
+restart_timeout_timer(Type, Timeout, Data = #data{timeout_timer_ref = undefined}) ->
+   TimerRef = erlang:start_timer(Timeout, self(), Type),
    {ok, Data#data{timeout_timer_ref = TimerRef}};
-restart_timeout_timer(Type, Data = #data{timeout_timer_ref = OldTimerRef, config = #fix_session_config{heartbeat_int = Timeout, transmission_time = TransTime}}) ->
+restart_timeout_timer(Type, Timeout, Data = #data{timeout_timer_ref = OldTimerRef}) ->
    erlang:cancel_timer(OldTimerRef),
-   TimerRef = erlang:start_timer(Timeout * 1000 + TransTime, self(), Type),
+   TimerRef = erlang:start_timer(Timeout, self(), Type),
    {ok, Data#data{timeout_timer_ref = TimerRef}}.
 
 validate_logon(Msg = #msg{type = "A"}, Username, Password) ->
@@ -549,30 +602,36 @@ send_fix_message([Msg|Rest], Data = #data{config = #fix_session_config{module = 
          send_fix_message(Rest, Data#data{module_state = MState1})
    end.
 
-trace(_, _, #data{config = #fix_session_config{tracer = undefined}}) -> ok;
+trace(_, _, #data{config = #fix_session_config{tracer = undefined}}) ->
+   ok;
+
 trace(Msg, Direction, #data{config = #fix_session_config{tracer = Tracer}}) ->
    fix_tracer:trace(Tracer, Direction, Msg).
 
 store_msg_out(SeqNumOut, _Type, _, Data = #data{config = #fix_session_config{storage = undefined}}) ->
    {ok, Data#data{seq_num_out = SeqNumOut}};
+
 store_msg_out(SeqNumOut, Type, Msg, Data = #data{config = #fix_session_config{storage = Storage}}) ->
    fix_storage:store_msg_out(Storage, SeqNumOut, Type, Msg),
    {ok, Data#data{seq_num_out = SeqNumOut}}.
 
 store_seq_num_in(SeqNumIn, Data = #data{config = #fix_session_config{storage = undefined}}) ->
    {ok, Data#data{seq_num_in = SeqNumIn}};
+
 store_seq_num_in(SeqNumIn, Data = #data{config = #fix_session_config{storage = Storage}}) ->
    fix_storage:store_seq_num_in(Storage, SeqNumIn),
    {ok, Data#data{seq_num_in = SeqNumIn}}.
 
 get_storage_stat(Data = #data{config = #fix_session_config{storage = undefined}}) ->
    {ok, Data#data{seq_num_in = 0, seq_num_out = 0}};
+
 get_storage_stat(Data = #data{config = #fix_session_config{storage = Storage}}) ->
    {ok, {SeqNumIn, SeqNumOut}} = fix_storage:get_stat(Storage),
    {ok, Data#data{seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}}.
 
 reset_storage(Data = #data{config = #fix_session_config{storage = undefined}}) ->
    {ok, Data#data{seq_num_in = 0, seq_num_out = 0}};
+
 reset_storage(Data = #data{config = #fix_session_config{storage = Storage}}) ->
    fix_storage:reset(Storage),
    {ok, Data#data{seq_num_in = 0, seq_num_out = 0}}.
@@ -580,18 +639,21 @@ reset_storage(Data = #data{config = #fix_session_config{storage = Storage}}) ->
 socket_close(Data = #data{socket = Socket}) when is_port(Socket) ->
    gen_tcp:close(Socket),
    {ok, Data#data{socket = undefined}};
+
 socket_close(Data = #data{socket = Socket}) ->
    Socket ! tcp_close,
    {ok, Data}.
 
 socket_send(Socket, Msg) when is_port(Socket) ->
    gen_tcp:send(Socket, Msg);
+
 socket_send(Socket, Msg) ->
    Socket ! Msg,
    ok.
 
 socket_controlling_process(Socket, SessionPid) when is_port(Socket) ->
    gen_tcp:controlling_process(Socket, SessionPid);
+
 socket_controlling_process(_Socket, _SessionPid) ->
    ok.
 
