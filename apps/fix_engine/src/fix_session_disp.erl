@@ -45,7 +45,7 @@ loop(Socket, Timeout, LogonPart) ->
 dispatch_session(SessionID, Socket, Logon) ->
    case ets:lookup(fix_acceptors, SessionID) of
       [{SessionID, SessionPid}] ->
-         case gen_fix_acceptor:set_socket(SessionPid, Socket) of
+         case gen_fix_session:set_socket(SessionPid, Socket) of
             ok ->
                SessionPid ! {tcp, Socket, Logon};
             {error, already_connected} ->
