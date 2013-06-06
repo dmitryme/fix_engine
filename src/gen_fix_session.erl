@@ -1,8 +1,8 @@
 -module(gen_fix_session).
 
 -include("fix_engine_config.hrl").
--include_lib("fix_parser/include/fix_parser.hrl").
--include_lib("fix_parser/include/fix_fields.hrl").
+-include("fix_parser.hrl").
+-include("fix_fields.hrl").
 
 -behaviour(gen_server).
 
