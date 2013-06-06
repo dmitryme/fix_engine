@@ -1,6 +1,6 @@
 -module(fix_session_disp).
 
--include("fix_parser.hrl").
+-include_lib("fix_parser/include/fix_parser.hrl").
 
 -export([start_link/1, loop/1, set_socket/2]).
 
