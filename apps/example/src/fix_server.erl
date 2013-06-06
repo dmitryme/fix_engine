@@ -1,7 +1,7 @@
 -module(fix_server).
 
--include_lib("fix_engine/include/fix_parser.hrl").
--include_lib("fix_engine/include/fix_fields.hrl").
+-include_lib("fix_parser/include/fix_parser.hrl").
+-include_lib("fix_parser/include/fix_fields.hrl").
 -include_lib("fix_engine/include/fix_engine_config.hrl").
 
 -export([
