@@ -12,7 +12,7 @@ configuration() ->
       storage_module = fix_storage_dets,
       storage_dir = "./storage",
       storage_flags = [{estimated_no_objects, 1000000}],
-      fix_protocol = "../deps/fix_parser/fix_descr/fix.4.4.xml",
+      fix_protocol = "fix.4.4.xml",
       sessions = [
          #fix_session_config{
             type = acceptor,
