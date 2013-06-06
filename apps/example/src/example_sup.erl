@@ -25,5 +25,5 @@ start_link() ->
 init([]) ->
    {ok, {{one_for_one, 5, 10},
          [
-            ?CHILD(fix_engine, worker)
+            ?CHILD(example_fix_engine, worker)
          ]}}.
