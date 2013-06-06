@@ -1,8 +1,8 @@
--module(fix_server).
+-module(example_fix_server).
 
--include_lib("fix_parser/include/fix_parser.hrl").
--include_lib("fix_parser/include/fix_fields.hrl").
--include("../..//include/fix_engine_config.hrl").
+-include("../../include/fix_parser.hrl").
+-include("../../include/fix_fields.hrl").
+-include("../../include/fix_engine_config.hrl").
 
 -export([
       start_link/1,
