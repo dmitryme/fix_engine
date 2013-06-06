@@ -1,6 +1,11 @@
 .PHONY: deps test
 
-fix_parser_deps:
+all: deps compile
+
+compile:
+	./rebar compile
+
+deps:
 	if [ ! -d apps/fix_parser/.fix_parser ]; then \
 		git clone git://github.com/dmitryme/fix_parser.git apps/fix_parser/.fix_parser; \
 		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/src apps/fix_parser; \
@@ -10,8 +15,9 @@ fix_parser_deps:
 		cd apps/fix_parser/.fix_parser/build/; \
 		./build.sh; \
 	fi
+	./rebar get-deps
 
-fix_parser_deps_update:
+update-deps:
 	if [ ! -d apps/fix_parser/.fix_parser ]; then \
 		git clone git://github.com/dmitryme/fix_parser.git apps/fix_parser/.fix_parser; \
 		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/src apps/fix_parser; \
@@ -24,16 +30,6 @@ fix_parser_deps_update:
 		cd build; \
 		./build.sh; \
 	fi
-
-all: deps compile
-
-compile:
-	./rebar compile
-
-deps: fix_parser_deps
-	./rebar get-deps
-
-update-deps: fix_parser_deps_update
 	./rebar update-deps
 
 clean:
