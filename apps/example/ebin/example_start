@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export ERL_LIBS=../apps:../deps
+export ERL_LIBS=../../:../deps
 
 erl +W w \
     -boot start_sasl \
