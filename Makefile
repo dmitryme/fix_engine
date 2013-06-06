@@ -4,6 +4,9 @@ all: deps compile
 
 compile:
 	./rebar compile
+	
+example:
+	./rebar -C rebar.example.config
 
 deps:
 	@if [ ! -d apps/fix_parser/.fix_parser ]; then \
