@@ -4,9 +4,9 @@ all: deps compile
 
 compile:
 	./rebar compile
-	
-example:
-	./rebar -C rebar.example.config
+
+example: example-deps
+	./rebar -C rebar.example.config compile
 
 deps:
 	@if [ ! -d apps/fix_parser/.fix_parser ]; then \
@@ -34,6 +34,9 @@ update-deps:
 		./build.sh; \
 	fi
 	./rebar update-deps
+
+example-deps: deps
+	./rebar -C rebar.example.config get-deps
 
 clean:
 	./rebar clean
