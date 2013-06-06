@@ -2,7 +2,7 @@
 
 -include_lib("fix_parser/include/fix_parser.hrl").
 -include_lib("fix_parser/include/fix_fields.hrl").
--include_lib("fix_engine/include/fix_engine_config.hrl").
+-include("../..//include/fix_engine_config.hrl").
 
 -export([
       start_link/1,
