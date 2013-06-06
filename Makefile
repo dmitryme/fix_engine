@@ -6,7 +6,7 @@ compile:
 	./rebar compile
 
 deps:
-	if [ ! -d apps/fix_parser/.fix_parser ]; then \
+	@if [ ! -d apps/fix_parser/.fix_parser ]; then \
 		git clone git://github.com/dmitryme/fix_parser.git apps/fix_parser/.fix_parser; \
 		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/src apps/fix_parser; \
 		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/include apps/fix_parser; \
@@ -18,7 +18,7 @@ deps:
 	./rebar get-deps
 
 update-deps:
-	if [ ! -d apps/fix_parser/.fix_parser ]; then \
+	@if [ ! -d apps/fix_parser/.fix_parser ]; then \
 		git clone git://github.com/dmitryme/fix_parser.git apps/fix_parser/.fix_parser; \
 		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/src apps/fix_parser; \
 		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/include apps/fix_parser; \
