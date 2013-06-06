@@ -1,6 +1,6 @@
 -module(fix_engine).
 
--include_lib("fix_engine/include/fix_engine_config.hrl").
+-include("../..//include/fix_engine_config.hrl").
 
 -compile([export_all]).
 
