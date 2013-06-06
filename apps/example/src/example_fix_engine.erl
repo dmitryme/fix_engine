@@ -1,6 +1,6 @@
--module(fix_engine).
+-module(example_fix_engine).
 
--include("../..//include/fix_engine_config.hrl").
+-include("../../include/fix_engine_config.hrl").
 
 -compile([export_all]).
 
@@ -16,7 +16,7 @@ configuration() ->
       sessions = [
          #fix_session_config{
             type = acceptor,
-            module = fix_server,
+            module = example_fix_server,
             sender_comp_id = "server",
             target_comp_id = "client",
             username = "",
@@ -24,7 +24,7 @@ configuration() ->
          },
          #fix_session_config{
             type = initiator,
-            module = fix_client,
+            module = example_fix_client,
             sender_comp_id = "client",
             target_comp_id = "server",
             username = "",
