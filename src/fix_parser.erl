@@ -11,7 +11,7 @@
 -on_load(load_lib/0).
 
 load_lib() ->
-   erlang:load_nif(code:priv_dir(fix_parser) ++ "/fix_parser", 0).
+   erlang:load_nif(code:priv_dir(fix_engine) ++ "/fix_parser", 0).
 
 -spec create(string(), attrs(), flags()) -> {ok, #parser{}} | {error, reason()}.
 create(_Path, _Attrs, _Flags) ->
