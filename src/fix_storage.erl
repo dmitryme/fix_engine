@@ -2,24 +2,23 @@
 
 -export([
       reset/1,
-      store_msg_out/4,
-      store_seq_num_in/2,
-      get_stat/1,
-      resend/3,
-      get_metadata/2
+      store_message/4,
+      get_messages/3,
+      get_metadata/2,
+      set_metadata/3
       ]).
 
 reset(Storage) ->
    gen_server:cast(Storage, reset).
 
-store_msg_out(Storage, MsgSeqNum, Type, Msg) ->
-   gen_server:cast(Storage, {store, MsgSeqNum, Type, Msg}).
+store_message(Storage, MsgSeqNum, Type, Msg) ->
+   gen_server:cast(Storage, {store_message, MsgSeqNum, Type, Msg}).
 
-store_seq_num_in(Storage, MsgSeqNum) ->
-   gen_server:cast(Storage, {seq_num_in, MsgSeqNum}).
-
-resend(Storage, BeginSeqNo, EndSeqNo) ->
-   gen_server:cast(Storage, {resend, self(), BeginSeqNo, EndSeqNo}).
+get_messages(Storage, BeginSeqNo, EndSeqNo) ->
+   gen_server:cast(Storage, {get_messages, self(), BeginSeqNo, EndSeqNo}).
 
 get_metadata(Storage, Item) ->
    gen_server:call(Storage, {get_metadata, Item}).
+
+set_metadata(Storage, Item, Value) ->
+   gen_server:call(Storage, {set_metadata, Item, Value}).
