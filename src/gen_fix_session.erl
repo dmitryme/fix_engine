@@ -389,7 +389,7 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    {ok, MsgSeqNum} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_MsgSeqNum),
    {ok, BeginSeqNo} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_BeginSeqNo),
    {ok, EndSeqNo} = fix_parser:get_int32_field(ResendRequestMsg, ?FIXFieldTag_EndSeqNo),
-   fix_storage:resend(Storage, BeginSeqNo, EndSeqNo),
+   fix_storage:get_messages(Storage, BeginSeqNo, EndSeqNo),
    F = fun() ->
       store_seq_num_in(MsgSeqNum, Data)
    end,
@@ -622,21 +622,22 @@ store_msg_out(SeqNumOut, _Type, _, Data = #data{config = #fix_session_config{sto
    {ok, Data#data{seq_num_out = SeqNumOut}};
 
 store_msg_out(SeqNumOut, Type, Msg, Data = #data{config = #fix_session_config{storage = Storage}}) ->
-   fix_storage:store_msg_out(Storage, SeqNumOut, Type, Msg),
+   ok = fix_storage:store_message(Storage, SeqNumOut, Type, Msg),
    {ok, Data#data{seq_num_out = SeqNumOut}}.
 
 store_seq_num_in(SeqNumIn, Data = #data{config = #fix_session_config{storage = undefined}}) ->
    {ok, Data#data{seq_num_in = SeqNumIn}};
 
 store_seq_num_in(SeqNumIn, Data = #data{config = #fix_session_config{storage = Storage}}) ->
-   fix_storage:store_seq_num_in(Storage, SeqNumIn),
+   ok = fix_storage:set_metadata(Storage, seq_num_in, SeqNumIn),
    {ok, Data#data{seq_num_in = SeqNumIn}}.
 
 get_storage_stat(Data = #data{config = #fix_session_config{storage = undefined}}) ->
    {ok, Data#data{seq_num_in = 0, seq_num_out = 0}};
 
 get_storage_stat(Data = #data{config = #fix_session_config{storage = Storage}}) ->
-   {ok, {SeqNumIn, SeqNumOut}} = fix_storage:get_stat(Storage),
+   {ok, SeqNumIn} = fix_storage:get_metadata(Storage, seq_num_in),
+   {ok, SeqNumOut} = fix_storage:get_metadata(Storage, seq_num_out),
    {ok, Data#data{seq_num_in = SeqNumIn, seq_num_out = SeqNumOut}}.
 
 reset_storage(Data = #data{config = #fix_session_config{storage = undefined}}) ->
