@@ -169,7 +169,7 @@ binary_to_msg(_ParserRef, _Delimiter, _BinData) ->
 -include("fix_fields.hrl").
 
 test1_test() ->
-   {ok, P} = fix_parser:create("../../../../fix_descr/fix.4.4.xml", [], [check_all]),
+   {ok, P} = fix_parser:create("../fix_descr/fix.4.4.xml", [], [check_all]),
    {ok, M} = fix_parser:create_msg(P, "8"),
    ?assertEqual("FIX.4.4", fix_parser:get_version(P)),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_SenderCompID, "QWERTY_12345678")),
@@ -228,7 +228,7 @@ test1_test() ->
    ?assertEqual({ok, $A}, fix_parser:get_char_field(M1, ?FIXFieldTag_NoOrders, $A)).
 
 test2_test() ->
-   {ok, P} = fix_parser:create("../../../../fix_descr/fix.5.0.sp2.xml", [], []),
+   {ok, P} = fix_parser:create("../fix_descr/fix.5.0.sp2.xml", [], []),
    {ok, M} = fix_parser:create_msg(P, "AE"),
    ?assertEqual("FIX.5.0.SP2", fix_parser:get_version(P)),
    ?assertEqual(ok, fix_parser:set_string_field(M, ?FIXFieldTag_ApplVerID, "9")),
