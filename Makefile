@@ -1,39 +1,12 @@
 .PHONY: deps test
 
-all: deps compile
+all: compile
 
 compile:
 	./rebar compile
 
 example: example-deps
 	./rebar -C rebar.example.config compile
-
-deps:
-	@if [ ! -d apps/fix_parser/.fix_parser ]; then \
-		git clone git://github.com/dmitryme/fix_parser.git apps/fix_parser/.fix_parser; \
-		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/src apps/fix_parser; \
-		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/include apps/fix_parser; \
-		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/c_src apps/fix_parser; \
-		cp -r apps/fix_parser/.fix_parser/fix_descr apps/fix_parser; \
-		cd apps/fix_parser/.fix_parser/build/; \
-		./build.sh; \
-	fi
-	./rebar get-deps
-
-update-deps:
-	@if [ ! -d apps/fix_parser/.fix_parser ]; then \
-		git clone git://github.com/dmitryme/fix_parser.git apps/fix_parser/.fix_parser; \
-		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/src apps/fix_parser; \
-		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/include apps/fix_parser; \
-		cp -r apps/fix_parser/.fix_parser/bind/erlang/fix_parser/c_src apps/fix_parser; \
-		cp -r apps/fix_parser/.fix_parser/fix_descr apps/fix_parser; \
-	else \
-		cd apps/fix_parser/.fix_parser/; \
-		git pull; \
-		cd build; \
-		./build.sh; \
-	fi
-	./rebar update-deps
 
 example-deps: deps
 	./rebar -C rebar.example.config get-deps
