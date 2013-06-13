@@ -281,7 +281,8 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    error_logger:info_msg("[~p]: successfully logged in.", [SessionID]),
    {ok, Data3#data{state = 'LOGGED_IN'}};
 
-'CONNECTED'(Msg = #msg{type = "A"}, Data = #data{config = #fix_session_config{type = acceptor, session_id = SessionID}, seq_num_in = SeqNumIn}) ->
+'CONNECTED'(Msg = #msg{type = "A"}, Data = #data{config = #fix_session_config{storage = Storage, type = acceptor, session_id = SessionID},
+      seq_num_in = SeqNumIn}) ->
    error_logger:info_msg("[~p]: message [~p] received.", [Data#data.config#fix_session_config.session_id, Msg#msg.type]),
    try
       validate_logon(Msg, Data#data.config#fix_session_config.username, Data#data.config#fix_session_config.password),
@@ -311,6 +312,7 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
             {ok, Data2} = send_fix_message([LogonReply, ResendRequest], Data1),
             {ok, DataRes} = restart_heartbeat_timer(Data2)
       end,
+      ok = fix_storage:set_metadata(Storage, correctly_terminated, false),
       {ok, DataRes#data{state = 'LOGGED_IN'}}
    catch
       throw:{badmatch, {fix_error, _, Reason}} ->
@@ -364,13 +366,14 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    {ok, Data4} = cancel_timeout_timer(Data3),
    {ok, Data4#data{state = 'DISCONNECTED'}};
 
-'LOGGED_IN'(tcp_closed, Data) ->
+'LOGGED_IN'(tcp_closed, Data = #data{config = #fix_session_config{storage = Storage}}) ->
    {ok, Data1} = cancel_heartbeat_timer(Data),
    {ok, Data2} = cancel_timeout_timer(Data1),
+   ok = fix_storage:get_metadata(Storage, correctly_terminated, true),
    {ok, Data2#data{state = 'CONNECTED', socket = undefined, binary = <<>>}};
 
-'LOGGED_IN'(#msg{type = "A"}, Data) ->
-   error_logger:error_msg("[~p]: unexpected logon received.", [Data#data.config#fix_session_config.session_id]),
+'LOGGED_IN'(#msg{type = "A"}, Data = #data{config = #fix_session_config{session_id = SessionID}}) ->
+   error_logger:error_msg("[~p]: unexpected logon received.", [SessionID]),
    {ok, Data1} = socket_close(Data),
    {ok, Data2} = cancel_heartbeat_timer(Data1),
    {ok, Data3} = cancel_timeout_timer(Data2),
@@ -383,13 +386,14 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    end,
    check_gap(HeartbeatMsg, F, Data);
 
-'LOGGED_IN'(LogoutMsg = #msg{type = "5"}, Data) ->
+'LOGGED_IN'(LogoutMsg = #msg{type = "5"}, Data = #data{config = #fix_session_config{storage = Storage}}) ->
    F = fun() ->
       {ok, MsgSeqNum} = fix_parser:get_int32_field(LogoutMsg, ?FIXFieldTag_MsgSeqNum),
       {ok, Logout} = create_logout("Bye", Data),
       {ok, Data1} = send_fix_message([Logout], Data),
       {ok, Data2} = cancel_heartbeat_timer(Data1),
       {ok, Data3} = cancel_timeout_timer(Data2),
+      ok = fix_storage:get_metadata(Storage, correctly_terminated, true),
       store_seq_num_in(MsgSeqNum, Data3)
    end,
    check_gap(LogoutMsg, F, Data);
