@@ -20,7 +20,7 @@ init(#fix_session_config{session_id = SessionID, storage_dir = Dir, storage_flag
          ok = dets:insert(MetTableRef, ?def_metadata);
       Size when Size > 0 ->
          Items = dets:select(MetTableRef, [{{'_', '_'}, [], ['$_']}]),
-         error_logger:info_msg("[~p] metadata : ~p", [Items])
+         error_logger:info_msg("[~p] metadata : ~p", [SessionID, Items])
    end,
    {ok, #state{session_id = SessionID, storage_ref = StorageTableRef, metadata_ref = MetTableRef}}.
 
