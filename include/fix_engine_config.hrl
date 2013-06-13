@@ -55,9 +55,4 @@
       sessions                               :: [#fix_session_config{}]
    }).
 
--define(def_metadata,
-   [
-      {seq_num_in, 0},
-      {seq_num_out, 0},
-      {correctly_terminated, false}
-   ]).
+-define(def_metadata, [{seq_num_in, 0}, {seq_num_out, 0}, {correctly_terminated, false}]).
