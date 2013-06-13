@@ -203,7 +203,7 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    end.
 
 % =====================================================================================================
-% =========================== Acceptor FSM begin ======================================================
+% ==================================== FSM begin ======================================================
 % =====================================================================================================
 
 % ================= DISCONNECTED BEGIN ================================================================
@@ -213,13 +213,22 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
 'DISCONNECTED'(connect, Data = #data{reconnect_tries = ReconnectTries, config = #fix_session_config{
       type = initiator, session_id = SessionID, host = Host, port = Port,
       reconnect_int = ReconnectInt, reconnect_max_tries = ReconnectMaxTries, socket_opts = SocketOpts,
-      logon_timeout = LogonTimeout}}) ->
+      logon_timeout = LogonTimeout, reset_seq_num = ResetSeqNumFlag, storage = Storage}}) ->
       case gen_tcp:connect(Host, Port, [{active, once}, binary | SocketOpts]) of
       {ok, Socket} ->
          Data1 = Data#data{state = 'CONNECTED', socket = Socket, reconnect_tries = 0},
-         {ok, LogonMsg} = create_logon($Y, Data1),
-         {ok, Data2} = send_fix_message([LogonMsg], Data1),
-         {ok, DataRes} = restart_timeout_timer(logon_timeout, LogonTimeout * 1000, Data2);
+         {ok, CorrectlyTerminated} = fix_storage:get_metadata(Storage, correctly_terminated),
+         ResetSeqNum = if (ResetSeqNumFlag == always) orelse (ResetSeqNumFlag == logout andalso CorrectlyTerminated == true) orelse
+            (ResetSeqNumFlag == failure andalso CorrectlyTerminated == true) ->
+               {ok, Data2} = reset_storage(Data1),
+               $Y;
+         true ->
+               Data2 = Data1,
+               $N
+         end,
+         {ok, LogonMsg} = create_logon(ResetSeqNum, Data2),
+         {ok, Data3} = send_fix_message([LogonMsg], Data2),
+         {ok, DataRes} = restart_timeout_timer(logon_timeout, LogonTimeout * 1000, Data3);
       {error, Reason} when ReconnectTries =< ReconnectMaxTries orelse ReconnectMaxTries == 0 ->
          error_logger:error_msg("[~p]: unable to connect to ~s:~p. Reason = ~p.", [SessionID, Host, Port, Reason]),
          {ok, Data1} = restart_timeout_timer(connect, ReconnectInt, Data),
@@ -286,18 +295,21 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
             {ok, Data2} = reset_storage(Data1),
             {ok, LogonReply} = create_logon(ResetSeqNum, Data2),
             {ok, Data3} = send_fix_message([LogonReply], Data2),
-            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data3);
+            {ok, Data4} = restart_heartbeat_timer(Data3),
+            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data4);
          false when MsgSeqNum =< SeqNumIn andalso PossDupFlag == $N ->
             DataRes = Data1,
             throw({error, io_lib:format("MsgSeqNum too low, expecting ~p but received ~p", [SeqNumIn + 1, MsgSeqNum])});
          false when MsgSeqNum =:= SeqNumIn + 1 ->
             {ok, LogonReply} = create_logon(ResetSeqNum, Data1),
             {ok, Data2} = send_fix_message([LogonReply], Data1),
-            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data2);
+            {ok, Data3} = restart_heartbeat_timer(Data2),
+            {ok, DataRes} = store_seq_num_in(MsgSeqNum, Data3);
          false when MsgSeqNum > SeqNumIn + 1 ->
             {ok, LogonReply} = create_logon(ResetSeqNum, Data1),
             {ok, ResendRequest} = create_resend(SeqNumIn + 1, 0, Data1),
-            {ok, DataRes} = send_fix_message([LogonReply, ResendRequest], Data1)
+            {ok, Data2} = send_fix_message([LogonReply, ResendRequest], Data1),
+            {ok, DataRes} = restart_heartbeat_timer(Data2)
       end,
       {ok, DataRes#data{state = 'LOGGED_IN'}}
    catch
@@ -313,21 +325,29 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
          error_logger:error_msg("[~p]: logon failed: ~p", [SessionID, Err]),
          {ok, Data100} = reject_logon("Logon failed.", Data),
          {ok, Data100#data{state = 'CONNECTED'}}
-   end.
+   end;
+
+'CONNECTED'(#msg{type = Type}, Data = #data{config = #fix_session_config{type = initiator, session_id = SessionID, reconnect_int = ReconnectInt}}) ->
+   {ok, Data1} = restart_timeout_timer(connect, ReconnectInt, Data),
+   error_logger:info_msg("[~p]: first message '~s' not a logon", [Type, SessionID]),
+   {ok, Data2} = socket_close(Data1),
+   {ok, Data2#data{state = 'DISCONNECTED'}}.
 
 % ================= CONNECTED END =====================================================================
 
 % ================= LOGGED_IN BEGIN ===================================================================
 'LOGGED_IN'(heartbeat, Data) ->
    {ok, Msg} = fix_parser:create_msg(Data#data.parser_out, "0"),
-   send_fix_message([Msg], Data);
+   {ok, Data1} = send_fix_message([Msg], Data),
+   restart_heartbeat_timer(Data1);
 
 'LOGGED_IN'(timeout, Data = #data{config = #fix_session_config{session_id = SessionID, heartbeat_int = Timeout, transmission_time = TransTime}}) ->
    error_logger:info_msg("[~p]: timeout detected.", [SessionID]),
    {ok, Msg} = fix_parser:create_msg(Data#data.parser_out, "1"),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TestReqID, erlang:ref_to_list(make_ref())),
    {ok, Data1} = send_fix_message([Msg], Data),
-   restart_timeout_timer(test_request_timeout, Timeout * 1000 + TransTime, Data1);
+   {ok, Data2} = restart_heartbeat_timer(Data1),
+   restart_timeout_timer(test_request_timeout, Timeout * 1000 + TransTime, Data2);
 
 'LOGGED_IN'(test_request_timeout, Data = #data{config = #fix_session_config{session_id = SessionID}}) ->
    error_logger:error_msg("[~p]: connection considered lost.", [SessionID]),
@@ -381,7 +401,8 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
       {ok, HeartbeatMsg} = fix_parser:create_msg(Data#data.parser_out, "0"),
       ok = fix_parser:set_string_field(HeartbeatMsg, ?FIXFieldTag_TestReqID, TestReqID),
       {ok, Data1} = send_fix_message([HeartbeatMsg], Data),
-      store_seq_num_in(MsgSeqNum, Data1)
+      {ok, Data2} = restart_heartbeat_timer(Data1),
+      store_seq_num_in(MsgSeqNum, Data2)
    end,
    check_gap(TestRequestMsg, F, Data);
 
@@ -430,7 +451,8 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    check_gap(Msg, F, Data);
 
 'LOGGED_IN'({send_fix, FixMsg}, Data) ->
-   send_fix_message([FixMsg], Data);
+   {ok, Data1} = send_fix_message([FixMsg], Data),
+   restart_heartbeat_timer(Data1);
 
 'LOGGED_IN'({skip_resend, SkipFrom, SkipTo}, Data = #data{parser_out = Parser, config = #fix_session_config{session_id = SessionID}}) ->
    error_logger:info_msg("[~p]: [~p, ~p] message(s) will be skipped.", [SessionID, SkipFrom, SkipTo]),
@@ -438,7 +460,8 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    ok = fix_parser:set_char_field(SeqReset, ?FIXFieldTag_PossDupFlag, $Y),
    ok = fix_parser:set_char_field(SeqReset, ?FIXFieldTag_GapFillFlag, $Y),
    ok = fix_parser:set_int32_field(SeqReset, ?FIXFieldTag_NewSeqNo, SkipTo + 1),
-   resend_fix_message(SkipFrom, SeqReset, Data);
+   {ok, Data1} = resend_fix_message(SkipFrom, SeqReset, Data),
+   restart_heartbeat_timer(Data1);
 
 'LOGGED_IN'({resend, FixMsg}, Data = #data{config = #fix_session_config{session_id = SessionID}}) ->
    {ok, MsgSeqNum} = fix_parser:get_int32_field(FixMsg, ?FIXFieldTag_MsgSeqNum),
@@ -446,7 +469,8 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    ok = fix_parser:set_string_field(FixMsg, ?FIXFieldTag_OrigSendingTime, SendingTime),
    error_logger:info_msg("[~p]: ~p message with MsgSeqNum = ~p will be resent.", [SessionID, FixMsg#msg.type, MsgSeqNum]),
    ok = fix_parser:set_char_field(FixMsg, ?FIXFieldTag_PossDupFlag, $Y),
-   resend_fix_message(MsgSeqNum, FixMsg, Data);
+   {ok, Data1} = resend_fix_message(MsgSeqNum, FixMsg, Data),
+   restart_heartbeat_timer(Data1);
 
 'LOGGED_IN'({fix_error, ErrCode, ErrText, Bin}, Data = #data{parser_out = Parser, config =
       #fix_session_config{session_id = SessionID}}) ->
@@ -456,7 +480,8 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
          {ok, Reject} = fix_parser:create_msg(Parser, "3"),
          ok = fix_parser:set_int32_field(Reject, ?FIXFieldTag_RefSeqNum, MsgSeqNum),
          ok = fix_parser:set_string_field(Reject, ?FIXFieldTag_Text, ErrText),
-         send_fix_message(Reject, Data);
+         {ok, Data1} = send_fix_message(Reject, Data),
+         restart_heartbeat_timer(Data1);
       _ ->
          error_logger:error_msg("Unable to create SessionLevelReject. Message is garbled. Bin = ~p",
             [Bin])
@@ -466,7 +491,7 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
 % ================= LOGGED_IN END =====================================================================
 
 % =====================================================================================================
-% =========================== Acceptor FSM end ========================================================
+% ==================================== FSM end ========================================================
 % =====================================================================================================
 
 apply(Data = #data{module_state = MState, config = #fix_session_config{session_id = SessionID, module = Module}, state = OldState}, Msg) ->
@@ -590,11 +615,10 @@ resend_fix_message(MsgSeqNum, Msg, Data) ->
       {error, Reason} ->
          error_logger:error_msg("[~p]: unable to resend. Error = ~p.", [Data#data.config#fix_session_config.session_id, Reason])
    end,
-   trace(Msg, out, Data),
-   restart_heartbeat_timer(Data).
+   trace(Msg, out, Data).
 
 send_fix_message([], Data) ->
-   restart_heartbeat_timer(Data);
+   {ok, Data};
 send_fix_message([Msg|Rest], Data = #data{config = #fix_session_config{module = Module}, module_state = MState, seq_num_out = SeqNumOut}) ->
    MsgSeqNum = SeqNumOut + 1,
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SenderCompID, Data#data.config#fix_session_config.sender_comp_id),
