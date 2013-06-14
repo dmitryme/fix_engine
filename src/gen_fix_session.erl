@@ -218,8 +218,11 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
       {ok, Socket} ->
          Data1 = Data#data{state = 'CONNECTED', socket = Socket, reconnect_tries = 0},
          {ok, CorrectlyTerminated} = fix_storage:get_metadata(Storage, correctly_terminated),
-         ResetSeqNum = if (ResetSeqNumFlag == always) orelse (ResetSeqNumFlag == logout andalso CorrectlyTerminated == true) orelse
-            (ResetSeqNumFlag == failure andalso CorrectlyTerminated == true) ->
+         {ok, SeqNumOut} = fix_storage:get_metadata(Storage, seq_num_out),
+         ResetSeqNum = if (ResetSeqNumFlag == always) orelse
+                          (ResetSeqNumFlag == logout andalso CorrectlyTerminated == true) orelse
+                          (ResetSeqNumFlag == failure andalso CorrectlyTerminated == true) orelse
+                          (ResetSeqNumFlag == never andalso SeqNumOut == 0) ->
                {ok, Data2} = reset_storage(Data1),
                $Y;
          true ->
