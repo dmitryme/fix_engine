@@ -502,7 +502,7 @@ apply(Data = #data{module_state = MState, config = #fix_session_config{session_i
    case (catch erlang:apply(?MODULE, OldState, [Msg, Data])) of
       {ok, NewData = #data{state = NewState}} ->
          if NewState =/= OldState ->
-            {ok, MState1} = Module:handle_fix_state(NewState, OldState, MState),
+            {ok, MState1} = Module:handle_fix_state(OldState, NewState, MState),
             error_logger:info_msg("[~p]: state changed [~p]->[~p].", [SessionID, OldState, NewState]),
             {ok, NewData#data{module_state = MState1}};
          true ->
