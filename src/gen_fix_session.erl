@@ -337,7 +337,7 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
 
 'CONNECTED'(#msg{type = Type}, Data = #data{config = #fix_session_config{type = initiator, session_id = SessionID, reconnect_int = ReconnectInt}}) ->
    {ok, Data1} = restart_timeout_timer(connect, ReconnectInt, Data),
-   error_logger:info_msg("[~p]: first message '~s' not a logon", [Type, SessionID]),
+   error_logger:info_msg("[~p]: first message '~s' not a logon", [SessionID, Type]),
    {ok, Data2} = socket_close(Data1),
    {ok, Data2#data{state = 'DISCONNECTED'}}.
 
