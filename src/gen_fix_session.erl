@@ -246,6 +246,9 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
 'DISCONNECTED'(heartbeat, Data) ->
    {ok, Data#data{heartbeat_timer_ref = undefined}};
 
+'DISCONNECTED'(timeout, Data) ->
+   {ok, Data#data{heartbeat_timer_ref = undefined}};
+
 'DISCONNECTED'(Msg, Data) ->
    error_logger:error_msg("[~p]: unsupported msg ~p received.", [Data#data.config#fix_session_config.session_id, Msg]),
    socket_close(Data).
