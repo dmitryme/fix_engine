@@ -84,7 +84,7 @@ get_current_state(SessionID) ->
    gen_server:call(SessionID, {gen_fix_session, get_current_state}).
 
 send_fix(SessionID, FixMsg) ->
-   gen_server:call(SessionID, {gen_fix_session, send_fix, FixMsg}).
+   gen_server:cast(SessionID, {gen_fix_session, send_fix, FixMsg}).
 
 start_link(Args = #fix_session_config{session_id = SessionID}, Options) ->
    error_logger:info_msg("[~p]: starting.", [SessionID]),
@@ -635,14 +635,19 @@ send_fix_message([Msg|Rest], Data = #data{config = #fix_session_config{module = 
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_TargetCompID, Data#data.config#fix_session_config.target_comp_id),
    ok = fix_parser:set_int32_field(Msg, ?FIXFieldTag_MsgSeqNum, MsgSeqNum),
    ok = fix_parser:set_string_field(Msg, ?FIXFieldTag_SendingTime, fix_utils:now_utc()),
-   {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
-   case socket_send(Data#data.socket, BinMsg) of
-      ok ->
-         trace(Msg, out, Data),
-         {ok, Data1} = store_msg_out(MsgSeqNum, Msg#msg.type, BinMsg, Data),
-         send_fix_message(Rest, Data1);
-      {error, Reason} ->
-         {ok, MState1} = Module:handle_error({unable_to_send, Reason}, Msg, MState),
+   case fix_parser:msg_to_binary(Msg, ?FIX_SOH) of
+      {ok, BinMsg} ->
+         case socket_send(Data#data.socket, BinMsg) of
+            ok ->
+               trace(Msg, out, Data),
+               {ok, Data1} = store_msg_out(MsgSeqNum, Msg#msg.type, BinMsg, Data),
+               send_fix_message(Rest, Data1);
+            {error, Reason} ->
+               {ok, MState1} = Module:handle_error({unable_to_send, Reason}, Msg, MState),
+               send_fix_message(Rest, Data#data{module_state = MState1})
+         end;
+      Err = {fix_error, _, _} ->
+         {ok, MState1} = Module:handle_error(Err, Msg, MState),
          send_fix_message(Rest, Data#data{module_state = MState1})
    end.
 
