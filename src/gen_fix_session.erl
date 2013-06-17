@@ -124,9 +124,6 @@ handle_call({gen_fix_session, disconnect}, _From, Data) ->
    {reply, ok, Data1};
 handle_call({gen_fix_session, get_current_state}, _From, Data) ->
    {reply, Data#data.state, Data};
-handle_call({gen_fix_session, send_fix, FixMsg}, _From, Data) ->
-   {ok, Data1} = ?MODULE:apply(Data, {send_fix, FixMsg}),
-   {reply, ok, Data1};
 handle_call(Msg, From, Data = #data{config = #fix_session_config{module = Module}, module_state = MState}) ->
    case Module:handle_call(Msg, From, MState) of
       {reply, Reply, NewMState} ->
@@ -145,6 +142,9 @@ handle_call(Msg, From, Data = #data{config = #fix_session_config{module = Module
          {stop, {bad_return_value, Reply}, Data}
    end.
 
+handle_cast({gen_fix_session, send_fix, FixMsg}, Data) ->
+   {ok, Data1} = ?MODULE:apply(Data, {send_fix, FixMsg}),
+   {noreply, Data1};
 handle_cast(Request, Data = #data{config = #fix_session_config{module = Module}, module_state = MState}) ->
    case Module:handle_cast(Request, MState) of
       {noreply, NewMState} ->
@@ -621,11 +621,11 @@ resend_fix_message(MsgSeqNum, Msg, Data) ->
    {ok, BinMsg} = fix_parser:msg_to_binary(Msg, ?FIX_SOH),
    case socket_send(Data#data.socket, BinMsg) of
       ok ->
-         ok;
+         trace(Msg, out, Data);
       {error, Reason} ->
          error_logger:error_msg("[~p]: unable to resend. Error = ~p.", [Data#data.config#fix_session_config.session_id, Reason])
    end,
-   trace(Msg, out, Data).
+   {ok, Data}.
 
 send_fix_message([], Data) ->
    {ok, Data};
