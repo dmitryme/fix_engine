@@ -57,5 +57,10 @@ store_msg_test(_Config) ->
       {resend, [{3, "C", msg3}]} -> ok;
       Msg1 -> io:format("~p~n", [Msg1]), 1 = 2
    end,
+   ok = fix_storage:get_messages(?storage_name, 1, 0),
+   receive
+      {resend, [{1, "A", msg1}, {2, "B", msg2}, {3, "C", msg3}]} -> ok;
+      Msg2 -> io:format("~p~n", [Msg2]), 1 = 2
+   end,
    fix_storage:reset(?storage_name),
    {ok, 0} = fix_storage:get_metadata(?storage_name, seq_num_out).
