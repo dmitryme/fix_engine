@@ -8,7 +8,7 @@
 
 -export([set_socket/2, connect/1, disconnect/1, get_current_state/1, send_fix/2]).
 
--export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([start_link/3, start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -export([apply/2, 'DISCONNECTED'/2, 'CONNECTED'/2, 'LOGGED_IN'/2]).
 
@@ -85,6 +85,10 @@ get_current_state(SessionID) ->
 
 send_fix(SessionID, FixMsg) ->
    gen_server:cast(SessionID, {gen_fix_session, send_fix, FixMsg}).
+
+start_link(Name, Args = #fix_session_config{session_id = SessionID}, Options) ->
+   error_logger:info_msg("[~p]: starting.", [SessionID]),
+   gen_server:start_link(Name, ?MODULE, Args, Options).
 
 start_link(Args = #fix_session_config{session_id = SessionID}, Options) ->
    error_logger:info_msg("[~p]: starting.", [SessionID]),
