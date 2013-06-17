@@ -45,7 +45,7 @@ handle_cast({store_message, MsgSeqNum, Type, Msg}, State = #state{storage_ref = 
    {noreply, State};
 
 handle_cast({get_messages, From, BeginSeqNo, EndSeqNo}, State = #state{session_id = SessionID, storage_ref = StorageTableRef, metadata_ref = MetTableRef}) ->
-   [SeqNumOut] = ets:lookup(MetTableRef, seq_num_out),
+   [{seq_num_out, SeqNumOut}] = ets:lookup(MetTableRef, seq_num_out),
    EndSeqNo1 = if (EndSeqNo == 0) -> SeqNumOut; true -> EndSeqNo end,
    error_logger:info_msg("[~p]: try to find messages [~p,~p].", [SessionID, BeginSeqNo, EndSeqNo1]),
    UnorderedMsgs = ets:select(StorageTableRef,  [{{'$1', '_', '_'}, [
