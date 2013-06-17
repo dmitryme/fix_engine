@@ -74,17 +74,17 @@ set_socket(SessionPid, Socket) ->
          ok
    end.
 
-connect(SessionID) ->
-   gen_server:call(SessionID, {gen_fix_session, connect}).
+connect(Name) ->
+   gen_server:call(Name, {gen_fix_session, connect}).
 
-disconnect(SessionID) ->
-   gen_server:call(SessionID, {gen_fix_session, disconnect}).
+disconnect(Name) ->
+   gen_server:call(Name, {gen_fix_session, disconnect}).
 
-get_current_state(SessionID) ->
-   gen_server:call(SessionID, {gen_fix_session, get_current_state}).
+get_current_state(Name) ->
+   gen_server:call(Name, {gen_fix_session, get_current_state}).
 
-send_fix(SessionID, FixMsg) ->
-   gen_server:cast(SessionID, {gen_fix_session, send_fix, FixMsg}).
+send_fix(Name, FixMsg) ->
+   gen_server:cast(Name, {gen_fix_session, send_fix, FixMsg}).
 
 start_link(Name, Args = #fix_session_config{session_id = SessionID}, Options) ->
    error_logger:info_msg("[~p]: starting.", [SessionID]),
