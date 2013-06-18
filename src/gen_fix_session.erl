@@ -53,8 +53,7 @@
     {stop, Reason :: term(), NewState :: term()}.
 
 -callback handle_fix(FIXMessage :: #msg{}, State :: term()) ->
-   {reply, FIXMessage :: #msg{}, NewState :: term()} |
-   {noreply, NewState :: term()}.
+   {ok, NewState :: term()}.
 
 -callback handle_fix_state(NewFixState :: atom(), OldFixState :: atom(), State :: term()) ->
    {ok, NewState :: term()}.
@@ -450,12 +449,7 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
    F = fun() ->
       {ok, MsgSeqNum} = fix_parser:get_int32_field(Msg, ?FIXFieldTag_MsgSeqNum),
       case Module:handle_fix(Msg, MState) of
-         {reply, ReplyMsg = #msg{}, NewMState} ->
-            {ok, Data1} = send_fix_message([ReplyMsg], Data),
-            {ok, Data2} = restart_heartbeat_timer(Data1),
-            {ok, Data3} = store_seq_num_in(MsgSeqNum, Data2),
-            {ok, Data3#data{module_state = NewMState}};
-         {noreply, NewMState} ->
+         {ok, NewMState} ->
             {ok, Data1} = store_seq_num_in(MsgSeqNum, Data),
             {ok, Data1#data{module_state = NewMState}};
          Reply ->
