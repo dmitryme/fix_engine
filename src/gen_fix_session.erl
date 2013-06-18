@@ -263,7 +263,8 @@ code_change(OldVsn, Data  = #data{config = #fix_session_config{module = Module},
 
 'CONNECTED'(disconnect, Data) ->
    {ok, Data1} = cancel_timeout_timer(Data),
-   {ok, Data1#data{state = 'DISCONNECTED'}};
+   {ok, Data2} = socket_close(Data1),
+   {ok, Data2#data{state = 'DISCONNECTED'}};
 
 'CONNECTED'({fix_error, _ErrCode, ErrText}, Data) ->
    {ok, LogoutMsg} = create_logout(ErrText, Data),
